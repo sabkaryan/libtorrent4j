@@ -48,6 +48,28 @@ time to the first piece and the full download time from a local seed. Keep the
 piece count realistic (thousands): the checked build's invariant checks scale
 with it, and a small fixture would show no slowdown whatever the real cost.
 
+## Download-ceiling rigs (desktop JVM)
+
+`CeilingTest.java` and `AnnounceTest.java` measure a "download ceiling" policy
+built from stock libtorrent only: pieces beyond a ceiling get priority 0, the
+ceiling is raised in steps, `close_redundant_connections` is off. Once
+everything below the ceiling is downloaded the torrent is *finished*, which
+makes it send NOT_INTERESTED (and get choked) and announce `event=paused`.
+They run all sessions in one process on 127.0.0.1 and put every address in the
+global peer class, because the default "local" class ignores unchoke slots and
+rate limits and would hide the cost being measured.
+
+    javac -cp build/libs/libtorrent4j-<version>.jar -d out stand/CeilingTest.java stand/AnnounceTest.java
+    java -XX:+UnlockExperimentalVMOptions -XX:+UseEpsilonGC -Xmx4g \
+         -Dlibtorrent4j.jni.path=<libtorrent4j.dylib|.so> -cp <jar>:out CeilingTest <scenario> <seeds> <crc> ...
+
+Scenarios and parameters are documented in the class comments (`steps`,
+`seek`, `slide`, seed kinds `free`, `contended`, `busy`, `mixed:N:K`).
+Run them without a garbage collector (Epsilon GC) as above: the rigs poll
+libtorrent every few milliseconds and create many short-lived SWIG objects,
+whose finalizers free native memory in an undefined order and can crash a
+long run (observed as SIGSEGV on the finalizer thread).
+
 What the rig does not cover: a peer requesting from us a piece we have just
 forgotten (the stale-read guard in `peer_connection::on_disk_read_complete`
 and its `ses.num_stale_piece_rejects` counter), whether forget_piece itself
