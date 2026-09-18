@@ -32,6 +32,11 @@ import java.util.*;
  *                          after forget_piece(2) the piece is fetched again,
  *                          exactly one piece of payload, and the file is
  *                          byte-equal to the reference.</li>
+ * <li>{@code resume}     — after forget_piece(2) the saved resume data has bit 2
+ *                          clear, and a torrent re-added from it does not have
+ *                          piece 2 without any re-check. (need_save_resume_data
+ *                          is already true right after checking, so this mode
+ *                          cannot tell whether forget_piece set the flag.)</li>
  * <li>{@code offthread}  — positive control for a checked build: calls the
  *                          torrent method on the wrong thread; the process
  *                          must abort on is_single_thread().</li>
@@ -102,6 +107,9 @@ public class StandTest {
                 break;
             case "redownload":
                 redownload(ses, h, dir, data, torrent, fa, fb);
+                return; // exits inside
+            case "resume":
+                resume(ses, h, dir, torrent);
                 return; // exits inside
             default:
                 throw new IllegalArgumentException(mode);
@@ -199,6 +207,75 @@ public class StandTest {
         seed.abort();
         ses.abort();
         seed.delete();
+        ses.delete();
+        System.exit(ok ? 0 : 1);
+    }
+
+    // resume: after forget_piece(2) the torrent asks to be saved, the saved
+    // have_pieces bitfield has bit 2 clear, and a torrent re-added from that
+    // resume data does not have piece 2 without any re-check.
+    static void resume(session ses, torrent_handle h, File dir, File torrent) throws Exception {
+        boolean needBefore = h.need_save_resume_data();
+        int rc = libtorrent_ext.forgetPiece(h, 2);
+        boolean needAfter = h.need_save_resume_data();
+        System.out.println("forgetPiece(2) rc=" + rc + " need_save_resume_data before=" + needBefore + " after=" + needAfter);
+
+        h.save_resume_data();
+        add_torrent_params saved = null;
+        long end = System.currentTimeMillis() + 10000;
+        alert_ptr_vector v = new alert_ptr_vector();
+        while (saved == null && System.currentTimeMillis() < end) {
+            ses.wait_for_alert_ms(500);
+            ses.pop_alerts(v);
+            for (int i = 0; i < v.size(); i++) {
+                alert al = v.get(i);
+                if (al.type() == save_resume_data_alert.alert_type) {
+                    // the alert (and its params) stay valid until the next pop_alerts;
+                    // no SWIG copy is possible, the memory is owned by the alert
+                    saved = alert.cast_to_save_resume_data_alert(al).getParams();
+                }
+            }
+        }
+        if (saved == null) throw new RuntimeException("no save_resume_data_alert");
+        bitfield hp = saved.get_have_pieces();
+        System.out.println("saved have_pieces: size=" + hp.size() + " count=" + hp.count() + " bit2=" + hp.get_bit(2));
+
+        ses.remove_torrent(h);
+        Thread.sleep(300);
+        // the saved params carry no torrent_info; re-add from the .torrent and
+        // transplant have_pieces, the way a client restoring from resume data does
+        add_torrent_params p2 = libtorrent.load_torrent_file(torrent.getAbsolutePath());
+        p2.setSave_path(dir.getAbsolutePath());
+        byte_vector prio = new byte_vector();
+        prio.add(Byte.valueOf((byte) 4));
+        prio.add(Byte.valueOf((byte) 0));
+        p2.set_file_priorities(prio);
+        p2.set_have_pieces(hp);
+        error_code ec = new error_code();
+        torrent_handle h2 = ses.add_torrent(p2, ec);
+        if (ec.value() != 0) throw new RuntimeException("re-add: " + ec.message());
+        // no re-check expected: the torrent should settle from resume data quickly
+        long end2 = System.currentTimeMillis() + 10000;
+        torrent_status st2 = h2.status();
+        while (System.currentTimeMillis() < end2
+            && st2.getState().swigValue() != torrent_status.state_t.downloading.swigValue()
+            && st2.getState().swigValue() != torrent_status.state_t.finished.swigValue()) {
+            Thread.sleep(100);
+            st2 = h2.status();
+        }
+        System.out.println("re-added: state=" + st2.getState() + " num_pieces=" + st2.getNum_pieces()
+            + " have(2)=" + h2.have_piece(2) + " have(1)=" + h2.have_piece(1));
+        boolean ok = check("rc==0", rc == 0)
+            & check("need_save_resume_data after forget", needAfter)
+            & check("saved bit 2 clear", !hp.get_bit(2))
+            & check("saved count == 7", hp.count() == 7)
+            & check("re-added: have(2)==false", !h2.have_piece(2))
+            & check("re-added: have(1)==true", h2.have_piece(1))
+            & check("re-added: num_pieces == 7", st2.getNum_pieces() == 7);
+        System.out.println(ok ? "RESULT: PASS" : "RESULT: FAIL");
+        ses.remove_torrent(h2);
+        Thread.sleep(200);
+        ses.abort();
         ses.delete();
         System.exit(ok ? 0 : 1);
     }
