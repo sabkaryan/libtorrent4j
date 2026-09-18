@@ -12,7 +12,9 @@
 #   - a JDK for Gradle
 #   - for macos: a macOS host with DEVELOPMENT_ROOT pointing at boost_1_89_0
 #     (bootstrapped, b2 present) and openssl-macos (include/ + lib/*.a),
-#     as swig/build-macos-arm64.sh expects
+#     as swig/build-macos-arm64.sh expects, plus cmake on PATH (libdatachannel
+#     builds libjuice and usrsctp with it; with CMake >= 4 set
+#     CMAKE_POLICY_VERSION_MINIMUM=3.5 for their old cmake_minimum_required)
 #   - gh (GitHub CLI) authenticated as the fork owner, for --publish
 #
 # Every native library is verified before it is packaged: ELF/Mach-O
@@ -65,6 +67,8 @@ build_android() { # <abi-script-suffix> <abi-dir>
 build_macos() {
     [ "$(uname -s)" = Darwin ] || { echo "macos artifacts can only be built on macOS" >&2; exit 2; }
     [ -n "${DEVELOPMENT_ROOT:-}" ] || { echo "set DEVELOPMENT_ROOT (boost_1_89_0 + openssl-macos)" >&2; exit 2; }
+    command -v cmake >/dev/null || { echo "cmake is required on PATH for the macOS build" >&2; exit 2; }
+    export CMAKE_POLICY_VERSION_MINIMUM=${CMAKE_POLICY_VERSION_MINIMUM:-3.5}
     (cd swig && ./build-macos-arm64.sh)
     [ -f swig/bin/release/macos/arm64/libtorrent4j.dylib ]
 }
