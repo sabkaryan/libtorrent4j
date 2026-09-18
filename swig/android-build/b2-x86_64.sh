@@ -15,7 +15,7 @@ export LD=${ANDROID_TOOLCHAIN}/bin/ld
 export RANLIB=${ANDROID_TOOLCHAIN}/bin/llvm-ranlib
 
 cd /libtorrent4j/swig
-${BOOST_ROOT}/b2 -j2 --user-config=config/android-x86_64-config.jam variant=release toolset=clang-x86_64 target-os=android location=bin/release/android/x86_64
+${BOOST_ROOT}/b2 -j${LT4J_JOBS:-2} --user-config=config/android-x86_64-config.jam variant=release toolset=clang-x86_64 target-os=android location=bin/release/android/x86_64
 ${ANDROID_TOOLCHAIN}/bin/llvm-objcopy --only-keep-debug bin/release/android/x86_64/libtorrent4j.so bin/release/android/x86_64/libtorrent4j.so.debug
 ${ANDROID_TOOLCHAIN}/bin/llvm-strip --strip-unneeded -x bin/release/android/x86_64/libtorrent4j.so
 ${ANDROID_TOOLCHAIN}/bin/llvm-readelf -d bin/release/android/x86_64/libtorrent4j.so

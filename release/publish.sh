@@ -55,12 +55,27 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 
 # ---- native libraries ------------------------------------------------------
 
+# libdatachannel builds libjuice and usrsctp with cmake inside the source tree
+# (deps/*/build-<variant>), keyed by variant only, not by target. A cache left
+# by the previous platform hands back an archive of the wrong architecture
+# while reporting success, so every platform starts from a clean cache, and
+# the copies b2 keeps in the output directory (make targets without sources
+# are never considered stale) are removed too.
+clean_datachannel() { # <output dir>
+    rm -rf swig/deps/libtorrent/deps/libdatachannel/deps/libjuice/build-* \
+           swig/deps/libtorrent/deps/libdatachannel/deps/usrsctp/build-*
+    rm -f "$1/libusrsctp.a" "$1/libjuice-openssl.a"
+}
+
 build_android() { # <abi-script-suffix> <abi-dir>
     local suffix=$1 abi=$2
     if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
         docker build --platform linux/amd64 -t "$IMAGE" swig/android-build
     fi
-    docker run --rm -i -e LT4J_JOBS="${LT4J_JOBS:-4}" -v "$ROOT":/libtorrent4j "$IMAGE" "/b2-$suffix.sh"
+    clean_datachannel "swig/bin/release/android/$abi"
+    # run the script from the repository, not the copy baked into the image
+    docker run --rm -i -e LT4J_JOBS="${LT4J_JOBS:-4}" -v "$ROOT":/libtorrent4j "$IMAGE" \
+        bash "/libtorrent4j/swig/android-build/b2-$suffix.sh"
     [ -f "swig/bin/release/android/$abi/libtorrent4j.so" ]
 }
 
@@ -69,6 +84,7 @@ build_macos() {
     [ -n "${DEVELOPMENT_ROOT:-}" ] || { echo "set DEVELOPMENT_ROOT (boost_1_89_0 + openssl-macos)" >&2; exit 2; }
     command -v cmake >/dev/null || { echo "cmake is required on PATH for the macOS build" >&2; exit 2; }
     export CMAKE_POLICY_VERSION_MINIMUM=${CMAKE_POLICY_VERSION_MINIMUM:-3.5}
+    clean_datachannel swig/bin/release/macos/arm64
     (cd swig && ./build-macos-arm64.sh)
     [ -f swig/bin/release/macos/arm64/libtorrent4j.dylib ]
 }
