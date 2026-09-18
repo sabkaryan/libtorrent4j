@@ -27,6 +27,7 @@ silently corrupting state. `LT4J_JOBS` sets the b2 parallelism (default 2).
     stand/run-android.sh swig/bin/release-checked/android/arm64-v8a/libtorrent4j.so breakpick
     stand/run-android.sh swig/bin/release-checked/android/arm64-v8a/libtorrent4j.so forget
     stand/run-android.sh swig/bin/release-checked/android/arm64-v8a/libtorrent4j.so redownload
+    stand/run-android.sh swig/bin/release-checked/android/arm64-v8a/libtorrent4j.so resume
     stand/run-android.sh swig/bin/release/android/arm64-v8a/libtorrent4j.so forget
 
 Order matters:
@@ -37,11 +38,11 @@ Order matters:
 2. `control` on a library built **without** the patch must pass, and `forget`
    on it must fail with `UnsatisfiedLinkError`: the observations see the patch,
    not something the library does by itself.
-3. Only then `forget` and `redownload` on the checked build, and then on the
-   release build, are evidence.
+3. Only then `forget`, `redownload` and `resume` on the checked build, and then
+   on the release build, are evidence.
 
 What the rig does not cover: a peer requesting from us a piece we have just
 forgotten (the stale-read guard in `peer_connection::on_disk_read_complete`
-and its `ses.num_stale_piece_rejects` counter), resume data after forgetting,
-and torrents that have already released their piece picker (`forget_piece`
+and its `ses.num_stale_piece_rejects` counter), whether forget_piece itself
+flags the resume data as dirty (it is already dirty after checking), and torrents that have already released their piece picker (`forget_piece`
 returns 2 for those).
