@@ -18,7 +18,8 @@ set(include_files
     libtorrent_jni.h)
 
 set(source_files
-    libtorrent_jni.cpp)
+    libtorrent_jni.cpp
+    ext_jni.cpp)
 
 add_library(torrent4j SHARED
     ${source_files}
