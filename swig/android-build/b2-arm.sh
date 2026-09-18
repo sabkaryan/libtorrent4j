@@ -15,7 +15,22 @@ export LD=${ANDROID_TOOLCHAIN}/bin/ld
 export RANLIB=${ANDROID_TOOLCHAIN}/bin/llvm-ranlib
 
 cd /libtorrent4j/swig
-${BOOST_ROOT}/b2 -j2 --user-config=config/android-arm-config.jam variant=release toolset=clang-linux-arm target-os=android location=bin/release/android/armeabi-v7a
-${ANDROID_TOOLCHAIN}/bin/llvm-objcopy --only-keep-debug bin/release/android/armeabi-v7a/libtorrent4j.so bin/release/android/armeabi-v7a/libtorrent4j.so.debug
-${ANDROID_TOOLCHAIN}/bin/llvm-strip --strip-unneeded -x -g bin/release/android/armeabi-v7a/libtorrent4j.so
-${ANDROID_TOOLCHAIN}/bin/llvm-readelf -d bin/release/android/armeabi-v7a/libtorrent4j.so
+
+# LT4J_CHECKED=1 builds a "checked" library: libtorrent's own asserts and
+# invariant checks are compiled in (TORRENT_USE_ASSERTS, TORRENT_USE_INVARIANT_CHECKS),
+# symbols are kept, and the output goes to bin/release-checked/. It is meant for
+# test rigs only: a violated internal assumption aborts the process instead of
+# silently corrupting state. The release build is unchanged.
+B2_EXTRA=""
+OUT_DIR=bin/release/android/armeabi-v7a
+if [ -n "${LT4J_CHECKED:-}" ]; then
+    B2_EXTRA="asserts=on invariant-checks=on"
+    OUT_DIR=bin/release-checked/android/armeabi-v7a
+fi
+
+${BOOST_ROOT}/b2 -j${LT4J_JOBS:-2} --user-config=config/android-arm-config.jam variant=release toolset=clang-linux-arm target-os=android ${B2_EXTRA} location=${OUT_DIR}
+if [ -z "${LT4J_CHECKED:-}" ]; then
+    ${ANDROID_TOOLCHAIN}/bin/llvm-objcopy --only-keep-debug ${OUT_DIR}/libtorrent4j.so ${OUT_DIR}/libtorrent4j.so.debug
+    ${ANDROID_TOOLCHAIN}/bin/llvm-strip --strip-unneeded -x -g ${OUT_DIR}/libtorrent4j.so
+fi
+${ANDROID_TOOLCHAIN}/bin/llvm-readelf -d ${OUT_DIR}/libtorrent4j.so
