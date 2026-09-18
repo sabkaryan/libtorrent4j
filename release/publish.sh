@@ -64,7 +64,9 @@ rm -rf "$OUT" && mkdir -p "$OUT"
 clean_datachannel() { # <output dir>
     rm -rf swig/deps/libtorrent/deps/libdatachannel/deps/libjuice/build-* \
            swig/deps/libtorrent/deps/libdatachannel/deps/usrsctp/build-*
-    rm -f "$1/libusrsctp.a" "$1/libjuice-openssl.a"
+    # the whole output directory goes too: a release is built from this commit
+    # only, never from objects left by an earlier build
+    rm -rf "$1"
 }
 
 build_android() { # <abi-script-suffix> <abi-dir>
@@ -113,7 +115,7 @@ jni_exports() {
 expect_arch() { # <file> <regex the `file` output must match>
     local desc
     desc=$(file -b "$1")
-    if ! echo "$desc" | grep -qE "$2"; then
+    if ! grep -qE "$2" <<< "$desc"; then
         echo "ARCH MISMATCH: $1: '$desc' does not match /$2/" >&2
         exit 1
     fi
@@ -124,9 +126,12 @@ verify_lib() { # <file> <arch regex>
     expect_arch "$1" "$2"
     local ex
     ex=$(jni_exports "$1")
-    echo "$ex" | grep -q '_libtorrent_1ext_forget_1piece$' \
+    # here-strings, not `echo | grep -q`: with pipefail, grep -q exiting on the
+    # first match kills echo with SIGPIPE and the pipeline reports failure —
+    # a found symbol reads as missing, and a present test export as absent
+    grep -q '_libtorrent_1ext_forget_1piece$' <<< "$ex" \
         || { echo "MISSING EXPORT: $1 has no libtorrent_ext.forget_piece" >&2; exit 1; }
-    if echo "$ex" | grep -q '_for_1test'; then
+    if grep -q 'for_1test$' <<< "$ex"; then
         echo "TEST-ONLY EXPORTS in a release library: $1" >&2; exit 1
     fi
     if [ -z "$REF_EXPORTS" ]; then
@@ -136,7 +141,7 @@ verify_lib() { # <file> <arch regex>
         diff <(echo "$REF_EXPORTS") <(echo "$ex") >&2 || true
         exit 1
     fi
-    echo "verified $1: $(echo "$ex" | wc -l | tr -d ' ') JNI exports"
+    echo "verified $1: $(wc -l <<< "$ex" | tr -d ' ') JNI exports"
 }
 
 for p in $PLATFORMS; do
