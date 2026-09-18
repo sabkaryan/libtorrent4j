@@ -21,3 +21,4 @@ libtorrent4j.iws
 
 dht_shell.dat
 demo/build/
+/stand/build
