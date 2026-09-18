@@ -61,7 +61,7 @@ tasks.test {
 }
 
 tasks.register<Zip>("nativeMacOSJar") {
-    destinationDirectory.set(file("${layout.buildDirectory}/libs"))
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
     archiveBaseName.set("libtorrent4j-macos")
     archiveExtension.set("jar")
 
@@ -73,7 +73,7 @@ tasks.register<Zip>("nativeMacOSJar") {
 }
 
 tasks.register<Zip>("nativeWindowsJar") {
-    destinationDirectory.set(file("$layout.buildDirectory/libs"))
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
     archiveBaseName.set("libtorrent4j-windows")
     archiveExtension.set("jar")
 
@@ -85,7 +85,7 @@ tasks.register<Zip>("nativeWindowsJar") {
 }
 
 tasks.register<Zip>("nativeLinuxJar") {
-    destinationDirectory.set(file("$layout.buildDirectory/libs"))
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
     archiveBaseName.set("libtorrent4j-linux")
     archiveExtension.set("jar")
 
@@ -97,7 +97,7 @@ tasks.register<Zip>("nativeLinuxJar") {
 }
 
 tasks.register<Zip>("nativeAndroidArmJar") {
-    destinationDirectory.set(file("$layout.buildDirectory/libs"))
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
     archiveBaseName.set("libtorrent4j-android-arm")
     archiveExtension.set("jar")
 
@@ -108,7 +108,7 @@ tasks.register<Zip>("nativeAndroidArmJar") {
 }
 
 tasks.register<Zip>("nativeAndroidX86Jar") {
-    destinationDirectory.set(file("$layout.buildDirectory/libs"))
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
     archiveBaseName.set("libtorrent4j-android-x86")
     archiveExtension.set("jar")
 
@@ -119,7 +119,7 @@ tasks.register<Zip>("nativeAndroidX86Jar") {
 }
 
 tasks.register<Zip>("nativeAndroidArm64Jar") {
-    destinationDirectory.set(file("$layout.buildDirectory/libs"))
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
     archiveBaseName.set("libtorrent4j-android-arm64")
     archiveExtension.set("jar")
 
@@ -130,7 +130,7 @@ tasks.register<Zip>("nativeAndroidArm64Jar") {
 }
 
 tasks.register<Zip>("nativeAndroidX64Jar") {
-    destinationDirectory.set(file("$layout.buildDirectory/libs"))
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
     archiveBaseName.set("libtorrent4j-android-x86_64")
     archiveExtension.set("jar")
 
