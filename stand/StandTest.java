@@ -27,7 +27,9 @@ import java.util.*;
  *                          must fail with UnsatisfiedLinkError.</li>
  * <li>{@code forget}     — forget_piece(2) == 0; have(2) false; num_pieces −1;
  *                          total_wanted_done −piece; finished → downloading;
- *                          ses.num_have_pieces unchanged (a monotonic counter).</li>
+ *                          ses.num_have_pieces unchanged (a monotonic counter);
+ *                          then the return codes: again → 1, bad index → 4,
+ *                          the handle of a removed torrent → 5.</li>
  * <li>{@code redownload} — a second, seeding session in the same process;
  *                          after forget_piece(2) the piece is fetched again,
  *                          exactly one piece of payload, and the file is
@@ -50,6 +52,7 @@ import java.util.*;
 public class StandTest {
     static final int PIECE = 256 * 1024;
     static final int PIECES_PER_FILE = 8;
+    static int againRc = -1, badIndexRc = -1;
 
     public static void main(String[] a) throws Exception {
         String mode = a[0];
@@ -127,6 +130,8 @@ public class StandTest {
             System.out.println("forgetPiece(2) again rc=" + rc2 + " (expect 1)");
             int rc3 = libtorrent_ext.forgetPiece(h, 999);
             System.out.println("forgetPiece(999) rc=" + rc3 + " (expect 4)");
+            againRc = rc2;
+            badIndexRc = rc3;
         }
 
         boolean ok = true;
@@ -139,16 +144,25 @@ public class StandTest {
             // ses.num_have_pieces counts pieces ever completed; it is not a gauge and
             // forget_piece leaves it alone (a checked build asserts on a decrement)
             ok &= check("ses.num_have_pieces unchanged (monotonic)", haveAfter == haveBefore);
+            ok &= check("again rc==1", againRc == 1);
+            ok &= check("bad index rc==4", badIndexRc == 4);
         } else if (mode.equals("control")) {
             ok &= check("have(2)==true", h.have_piece(2));
             ok &= check("num_pieces same", st2.getNum_pieces() == st.getNum_pieces());
             ok &= check("total_wanted_done same", st2.getTotal_wanted_done() == st.getTotal_wanted_done());
             ok &= check("state finished", st2.getState().swigValue() == torrent_status.state_t.finished.swigValue());
         }
+        ses.remove_torrent(h);
+        Thread.sleep(500);
+        if (mode.equals("forget")) {
+            // a handle whose torrent has been removed (torrent_handle has no public
+            // default constructor in the Java binding, this is the reachable invalid one)
+            int rc5 = libtorrent_ext.forgetPiece(h, 0);
+            System.out.println("forgetPiece(removed torrent's handle, 0) rc=" + rc5 + " (expect 5)");
+            ok &= check("removed torrent's handle rc==5", rc5 == 5);
+        }
         System.out.println(ok ? "RESULT: PASS" : "RESULT: FAIL");
 
-        ses.remove_torrent(h);
-        Thread.sleep(200);
         ses.abort();
         ses.delete();
         System.out.println("done");

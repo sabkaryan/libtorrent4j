@@ -22,8 +22,9 @@ SDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:?set ANDROID_SDK_ROOT}}
 ADB="$SDK/platform-tools/adb"
 [ -n "$SERIAL" ] && ADB="$ADB -s $SERIAL"
 D8=$(ls -d "$SDK"/build-tools/*/d8 | sort -V | tail -1)
-JAR=$(ls "$ROOT"/build/libs/libtorrent4j-*.jar 2>/dev/null | grep -v sources | head -1)
-[ -n "$JAR" ] || { echo "no wrapper jar in build/libs; run ./gradlew jar first" >&2; exit 2; }
+VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$ROOT/build.gradle.kts")
+JAR="$ROOT/build/libs/libtorrent4j-$VERSION.jar"
+[ -f "$JAR" ] || { echo "no $JAR; run ./gradlew jar first" >&2; exit 2; }
 
 OUT="$HERE/build"
 rm -rf "$OUT" && mkdir -p "$OUT/classes"
