@@ -53,6 +53,7 @@ lib torrent4j
 
     : # sources
 	 libtorrent_jni.cpp
+	 ext_jni.cpp
 
     : # requirements
     <conditional>@libtorrent_linking
