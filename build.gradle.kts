@@ -13,7 +13,11 @@ plugins {
 }
 
 group = "org.libtorrent4j"
-version = "2.1.0-38"
+// Fork versions add a fourth, numeric component to the upstream version
+// (2.1.0-38 -> 2.1.0-38.1). Gradle orders an extra numeric part above the
+// base version, while an extra string part ("-fp.1") would sort below it and
+// let a transitive reference to upstream win the conflict silently.
+version = "2.1.0-38.1"
 
 java {
     // using java 8 for android compatibility

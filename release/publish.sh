@@ -1,0 +1,201 @@
+#!/bin/bash
+# Builds, verifies and publishes a fork release: the Java library plus the
+# native libraries for the requested platforms, as assets of a GitHub release
+# tagged v<version>. Consumers resolve them with an Ivy repository over the
+# release download URL, pattern "[revision]/[module]-[revision].[ext]".
+#
+#   release/publish.sh [--publish] [--platforms "android-arm android-arm64 android-x86_64 macos"]
+#
+# Without --publish everything is built and verified into release/out/ and the
+# release is not created. Requirements:
+#   - Docker (Android platforms are built in the image from swig/android-build)
+#   - a JDK for Gradle
+#   - for macos: a macOS host with DEVELOPMENT_ROOT pointing at boost_1_89_0
+#     (bootstrapped, b2 present) and openssl-macos (include/ + lib/*.a),
+#     as swig/build-macos-arm64.sh expects
+#   - gh (GitHub CLI) authenticated as the fork owner, for --publish
+#
+# Every native library is verified before it is packaged: ELF/Mach-O
+# architecture, the exported JNI entry points (identical across platforms and
+# including the fork's additions), and the absence of test-only entry points.
+# A build step that reports success but produces a library of another
+# architecture, or a stale one, fails here rather than at the consumer.
+set -euo pipefail
+
+PUBLISH=0
+PLATFORMS="android-arm android-arm64 android-x86_64 macos"
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --publish) PUBLISH=1 ;;
+        --platforms) PLATFORMS="$2"; shift ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+    shift
+done
+
+ROOT=$(cd "$(dirname "$0")/.." && pwd)
+cd "$ROOT"
+VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' build.gradle.kts)
+[ -n "$VERSION" ] || { echo "cannot read version from build.gradle.kts" >&2; exit 2; }
+TAG="v$VERSION"
+OUT="$ROOT/release/out"
+IMAGE=lt4j:latest
+
+if [ -n "$(git status --porcelain --ignore-submodules=dirty)" ]; then
+    echo "working tree is not clean; commit or stash first" >&2
+    git status --short --ignore-submodules=dirty >&2
+    exit 2
+fi
+FORK_COMMIT=$(git rev-parse HEAD)
+LT_COMMIT=$(git -C swig/deps/libtorrent rev-parse HEAD)
+
+rm -rf "$OUT" && mkdir -p "$OUT"
+
+# ---- native libraries ------------------------------------------------------
+
+build_android() { # <abi-script-suffix> <abi-dir>
+    local suffix=$1 abi=$2
+    if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+        docker build --platform linux/amd64 -t "$IMAGE" swig/android-build
+    fi
+    docker run --rm -i -e LT4J_JOBS="${LT4J_JOBS:-4}" -v "$ROOT":/libtorrent4j "$IMAGE" "/b2-$suffix.sh"
+    [ -f "swig/bin/release/android/$abi/libtorrent4j.so" ]
+}
+
+build_macos() {
+    [ "$(uname -s)" = Darwin ] || { echo "macos artifacts can only be built on macOS" >&2; exit 2; }
+    [ -n "${DEVELOPMENT_ROOT:-}" ] || { echo "set DEVELOPMENT_ROOT (boost_1_89_0 + openssl-macos)" >&2; exit 2; }
+    (cd swig && ./build-macos-arm64.sh)
+    [ -f swig/bin/release/macos/arm64/libtorrent4j.dylib ]
+}
+
+for p in $PLATFORMS; do
+    echo "### building $p"
+    case "$p" in
+        android-arm)    build_android arm armeabi-v7a ;;
+        android-arm64)  build_android arm64 arm64-v8a ;;
+        android-x86_64) build_android x86_64 x86_64 ;;
+        macos)          build_macos ;;
+        *) echo "unknown platform $p" >&2; exit 2 ;;
+    esac
+done
+
+# ---- verification of the native libraries ------------------------------------
+
+# exported JNI entry points of a library, one per line, sorted
+jni_exports() {
+    case "$1" in
+        *.dylib) nm -gU "$1" | awk '{print $3}' | sed 's/^_//' ;;
+        *)       nm -D --defined-only "$1" | awk '{print $3}' ;;
+    esac | grep '^Java_' | sort
+}
+
+expect_arch() { # <file> <regex the `file` output must match>
+    local desc
+    desc=$(file -b "$1")
+    if ! echo "$desc" | grep -qE "$2"; then
+        echo "ARCH MISMATCH: $1: '$desc' does not match /$2/" >&2
+        exit 1
+    fi
+}
+
+REF_EXPORTS=""
+verify_lib() { # <file> <arch regex>
+    expect_arch "$1" "$2"
+    local ex
+    ex=$(jni_exports "$1")
+    echo "$ex" | grep -q '_libtorrent_1ext_forget_1piece$' \
+        || { echo "MISSING EXPORT: $1 has no libtorrent_ext.forget_piece" >&2; exit 1; }
+    if echo "$ex" | grep -q '_for_1test'; then
+        echo "TEST-ONLY EXPORTS in a release library: $1" >&2; exit 1
+    fi
+    if [ -z "$REF_EXPORTS" ]; then
+        REF_EXPORTS=$ex
+    elif [ "$ex" != "$REF_EXPORTS" ]; then
+        echo "EXPORT SET DIFFERS: $1 vs the first verified library" >&2
+        diff <(echo "$REF_EXPORTS") <(echo "$ex") >&2 || true
+        exit 1
+    fi
+    echo "verified $1: $(echo "$ex" | wc -l | tr -d ' ') JNI exports"
+}
+
+for p in $PLATFORMS; do
+    case "$p" in
+        android-arm)    verify_lib swig/bin/release/android/armeabi-v7a/libtorrent4j.so 'ELF 32-bit.*ARM' ;;
+        android-arm64)  verify_lib swig/bin/release/android/arm64-v8a/libtorrent4j.so 'ELF 64-bit.*(aarch64|ARM aarch64)' ;;
+        android-x86_64) verify_lib swig/bin/release/android/x86_64/libtorrent4j.so 'ELF 64-bit.*x86-64' ;;
+        macos)          verify_lib swig/bin/release/macos/arm64/libtorrent4j.dylib 'Mach-O 64-bit.*arm64' ;;
+    esac
+done
+
+# ---- jars ----------------------------------------------------------------------
+
+TASKS="jar"
+for p in $PLATFORMS; do
+    case "$p" in
+        android-arm)    TASKS="$TASKS nativeAndroidArmJar" ;;
+        android-arm64)  TASKS="$TASKS nativeAndroidArm64Jar" ;;
+        android-x86_64) TASKS="$TASKS nativeAndroidX64Jar" ;;
+        macos)          TASKS="$TASKS nativeMacOSJar" ;;
+    esac
+done
+./gradlew -q clean $TASKS
+
+ASSETS="build/libs/libtorrent4j-$VERSION.jar"
+for p in $PLATFORMS; do
+    ASSETS="$ASSETS build/libs/libtorrent4j-$p-$VERSION.jar"
+done
+for a in $ASSETS; do
+    [ -f "$a" ] || { echo "missing asset $a" >&2; exit 1; }
+    # the jar must contain exactly one native library (or, for the core jar, none)
+    n=$(unzip -l "$a" | grep -cE 'libtorrent4j\.(so|dylib)$' || true)
+    case "$a" in
+        */libtorrent4j-$VERSION.jar) [ "$n" = 0 ] || { echo "core jar carries a native library" >&2; exit 1; } ;;
+        *) [ "$n" = 1 ] || { echo "$a carries $n native libraries, expected 1" >&2; exit 1; } ;;
+    esac
+    cp "$a" "$OUT/"
+done
+
+# ---- checksums and provenance --------------------------------------------------
+
+cd "$OUT"
+shasum -a 256 *.jar > SHA256SUMS
+IMAGE_ID=$(docker image inspect "$IMAGE" --format '{{.Id}}' 2>/dev/null || echo "not used")
+# libtorrent commits on top of the upstream merge-base of this fork
+LT_BASE=$(git -C "$ROOT/swig/deps/libtorrent" merge-base HEAD "$(git -C "$ROOT/swig/deps/libtorrent" rev-parse --verify -q upstream/master || echo a01469c8d1f88dd83bed458ffccffab2727b9d2a)")
+PATCHES=$(git -C "$ROOT/swig/deps/libtorrent" log --reverse --format='%H %s' "$LT_BASE"..HEAD \
+    | awk '{h=$1; $1=""; sub(/^ /,""); gsub(/"/,"\\\""); printf "%s    {\"commit\": \"%s\", \"subject\": \"%s\"}", (NR>1?",\n":""), h, $0}')
+cat > provenance.json <<EOF
+{
+  "artifact": "libtorrent4j",
+  "version": "$VERSION",
+  "tag": "$TAG",
+  "repository_commit": "$FORK_COMMIT",
+  "libtorrent_commit": "$LT_COMMIT",
+  "libtorrent_patches": [
+$PATCHES
+  ],
+  "platforms": "$PLATFORMS",
+  "android_build_image": "$IMAGE_ID",
+  "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "sha256": {
+$(awk '{printf "    \"%s\": \"%s\"%s\n", $2, $1, (NR==n?"":",")}' n=$(wc -l < SHA256SUMS) SHA256SUMS)
+  }
+}
+EOF
+cat SHA256SUMS
+echo "provenance: $OUT/provenance.json"
+
+# ---- release ----------------------------------------------------------------------
+
+NOTES="libtorrent4j $VERSION: upstream 2.1.0-38 (libtorrent $LT_COMMIT) plus torrent_handle::forget_piece(), see provenance.json.
+Platforms: $PLATFORMS. Verify downloads against SHA256SUMS."
+if [ "$PUBLISH" = 1 ]; then
+    git tag -a "$TAG" -m "libtorrent4j $VERSION" 2>/dev/null || echo "tag $TAG already exists"
+    git push origin "$TAG"
+    gh release create "$TAG" --title "libtorrent4j $VERSION" --notes "$NOTES" \
+        "$OUT"/*.jar "$OUT/SHA256SUMS" "$OUT/provenance.json"
+    echo "published $TAG"
+else
+    echo "dry run: not published. Re-run with --publish to tag $TAG and create the release."
+fi
