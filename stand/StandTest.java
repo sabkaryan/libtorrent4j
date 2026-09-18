@@ -1,0 +1,293 @@
+import org.libtorrent4j.swig.*;
+
+import java.io.*;
+import java.nio.file.*;
+import java.security.MessageDigest;
+import java.util.*;
+
+/**
+ * Test rig for {@code torrent_handle::forget_piece()} (exposed as
+ * {@link libtorrent_ext#forgetPiece}). Runs on an Android device or emulator
+ * through {@code app_process}, see run-android.sh.
+ *
+ * Only SWIG-level classes are used on purpose: the higher-level Java wrappers
+ * release native memory from finalizers, which run in an undefined order at
+ * shutdown and make a short-lived process flaky.
+ *
+ * Fixture: a two-file torrent, 8 pieces of 256 KiB each. File A is present on
+ * disk, file B is absent and has priority 0. After checking, the torrent is
+ * {@code finished} but not seeding, so the piece picker is alive. (If both
+ * files were present, all 16 pieces would be found, the torrent would become
+ * a seed and release its picker; forget_piece would then return 2.)
+ *
+ * Modes (args[0]), args[1] is a scratch directory:
+ * <ul>
+ * <li>{@code control}    — never calls forget_piece; nothing may change. On a
+ *                          library without the patch the {@code forget} mode
+ *                          must fail with UnsatisfiedLinkError.</li>
+ * <li>{@code forget}     — forget_piece(2) == 0; have(2) false; num_pieces −1;
+ *                          total_wanted_done −piece; finished → downloading;
+ *                          ses.num_have_pieces unchanged (a monotonic counter).</li>
+ * <li>{@code redownload} — a second, seeding session in the same process;
+ *                          after forget_piece(2) the piece is fetched again,
+ *                          exactly one piece of payload, and the file is
+ *                          byte-equal to the reference.</li>
+ * <li>{@code offthread}  — positive control for a checked build: calls the
+ *                          torrent method on the wrong thread; the process
+ *                          must abort on is_single_thread().</li>
+ * <li>{@code breakpick}  — positive control for a checked build: drops a piece
+ *                          from the picker without bookkeeping; the next call
+ *                          must abort on torrent::check_invariant().</li>
+ * </ul>
+ * The two positive controls exist so that a checked build is first shown to
+ * be able to fail; only then does its silence in the other modes mean anything.
+ */
+public class StandTest {
+    static final int PIECE = 256 * 1024;
+    static final int PIECES_PER_FILE = 8;
+
+    public static void main(String[] a) throws Exception {
+        String mode = a[0];
+        File dir = new File(a[1]);
+        dir.mkdirs();
+        File data = new File(dir, "stand");
+        data.mkdirs();
+        byte[] fa = pattern(PIECE * PIECES_PER_FILE, 0x11);
+        byte[] fb = pattern(PIECE * PIECES_PER_FILE, 0x22);
+        write(new File(data, "a.bin"), fa);
+        // b.bin is deliberately not written, see the class comment
+        File torrent = new File(dir, "stand.torrent");
+        write(torrent, makeTorrent(fa, fb));
+
+        session ses = newSession();
+
+        add_torrent_params p = libtorrent.load_torrent_file(torrent.getAbsolutePath());
+        p.setSave_path(dir.getAbsolutePath()); // the torrent name adds the "stand" directory
+        byte_vector prio = new byte_vector();
+        prio.add(Byte.valueOf((byte) 4));
+        prio.add(Byte.valueOf((byte) 0));
+        p.set_file_priorities(prio);
+        error_code ec = new error_code();
+        torrent_handle h = ses.add_torrent(p, ec);
+        if (ec.value() != 0) throw new RuntimeException("add_torrent: " + ec.message());
+
+        torrent_status st = waitState(h, torrent_status.state_t.finished, 20000);
+        System.out.println("before: state=" + st.getState() + " finished=" + st.getIs_finished()
+            + " num_pieces=" + st.getNum_pieces() + " total_wanted_done=" + st.getTotal_wanted_done()
+            + " have(2)=" + h.have_piece(2));
+        long haveBefore = statsCounter(ses, "ses.num_have_pieces");
+        System.out.println("before: ses.num_have_pieces=" + haveBefore);
+        if (st.getNum_pieces() != PIECES_PER_FILE) throw new RuntimeException("fixture: expected 8 pieces, got " + st.getNum_pieces());
+
+        int rc;
+        switch (mode) {
+            case "forget":
+                rc = libtorrent_ext.forgetPiece(h, 2);
+                System.out.println("forgetPiece(2) rc=" + rc);
+                break;
+            case "control":
+                rc = -1;
+                System.out.println("control: forgetPiece NOT called");
+                break;
+            case "offthread":
+                System.out.println("offthread: calling forgetPieceOffThreadForTest(2) - a checked build must abort here");
+                rc = libtorrent_ext.forgetPieceOffThreadForTest(h, 2);
+                System.out.println("offthread: SURVIVED rc=" + rc + " (expected only on a release build)");
+                break;
+            case "breakpick":
+                rc = libtorrent_ext.breakPickerForTest(h, 2);
+                System.out.println("breakPickerForTest(2) rc=" + rc + " - the next call must trip the invariant on a checked build");
+                rc = libtorrent_ext.forgetPiece(h, 3);
+                System.out.println("breakpick: SURVIVED forgetPiece(3) rc=" + rc + " (expected only on a release build)");
+                break;
+            case "redownload":
+                redownload(ses, h, dir, data, torrent, fa, fb);
+                return; // exits inside
+            default:
+                throw new IllegalArgumentException(mode);
+        }
+
+        Thread.sleep(500);
+        torrent_status st2 = h.status();
+        long haveAfter = statsCounter(ses, "ses.num_have_pieces");
+        System.out.println("after: state=" + st2.getState() + " finished=" + st2.getIs_finished()
+            + " num_pieces=" + st2.getNum_pieces() + " total_wanted_done=" + st2.getTotal_wanted_done()
+            + " have(2)=" + h.have_piece(2) + " ses.num_have_pieces=" + haveAfter);
+
+        if (mode.equals("forget")) {
+            int rc2 = libtorrent_ext.forgetPiece(h, 2);
+            System.out.println("forgetPiece(2) again rc=" + rc2 + " (expect 1)");
+            int rc3 = libtorrent_ext.forgetPiece(h, 999);
+            System.out.println("forgetPiece(999) rc=" + rc3 + " (expect 4)");
+        }
+
+        boolean ok = true;
+        if (mode.equals("forget")) {
+            ok &= check("rc==0", rc == 0);
+            ok &= check("have(2)==false", !h.have_piece(2));
+            ok &= check("num_pieces-1", st2.getNum_pieces() == st.getNum_pieces() - 1);
+            ok &= check("total_wanted_done-piece", st2.getTotal_wanted_done() == st.getTotal_wanted_done() - PIECE);
+            ok &= check("state downloading", st2.getState().swigValue() == torrent_status.state_t.downloading.swigValue());
+            // ses.num_have_pieces counts pieces ever completed; it is not a gauge and
+            // forget_piece leaves it alone (a checked build asserts on a decrement)
+            ok &= check("ses.num_have_pieces unchanged (monotonic)", haveAfter == haveBefore);
+        } else if (mode.equals("control")) {
+            ok &= check("have(2)==true", h.have_piece(2));
+            ok &= check("num_pieces same", st2.getNum_pieces() == st.getNum_pieces());
+            ok &= check("total_wanted_done same", st2.getTotal_wanted_done() == st.getTotal_wanted_done());
+            ok &= check("state finished", st2.getState().swigValue() == torrent_status.state_t.finished.swigValue());
+        }
+        System.out.println(ok ? "RESULT: PASS" : "RESULT: FAIL");
+
+        ses.remove_torrent(h);
+        Thread.sleep(200);
+        ses.abort();
+        ses.delete();
+        System.out.println("done");
+        System.exit(ok ? 0 : 1);
+    }
+
+    static void redownload(session ses, torrent_handle h, File dir, File data, File torrent
+        , byte[] fa, byte[] fb) throws Exception {
+        File seedDir = new File(dir, "seed");
+        File seedData = new File(seedDir, "stand");
+        seedData.mkdirs();
+        write(new File(seedData, "a.bin"), fa);
+        write(new File(seedData, "b.bin"), fb);
+        session seed = newSession();
+        add_torrent_params ps = libtorrent.load_torrent_file(torrent.getAbsolutePath());
+        ps.setSave_path(seedDir.getAbsolutePath());
+        error_code ec2 = new error_code();
+        torrent_handle hs = seed.add_torrent(ps, ec2);
+        waitState(hs, torrent_status.state_t.seeding, 20000);
+        int port = seed.listen_port();
+        System.out.println("seed: seeding on 127.0.0.1:" + port);
+
+        // connect BEFORE forgetting: a finished torrent drops redundant seed
+        // connections, and after forget_piece it has to come back on its own
+        error_code ec3 = new error_code();
+        h.connect_peer(new tcp_endpoint(address.from_string("127.0.0.1", ec3), port));
+        Thread.sleep(1500);
+        torrent_status stc = h.status();
+        System.out.println("connected: num_peers=" + stc.getNum_peers() + " num_seeds=" + stc.getNum_seeds()
+            + " state=" + stc.getState());
+
+        // corrupt piece 2 on disk so the re-download is visible in the bytes too
+        try (RandomAccessFile f = new RandomAccessFile(new File(data, "a.bin"), "rw")) {
+            f.seek(2L * PIECE);
+            f.write(new byte[PIECE]);
+        }
+        int rc = libtorrent_ext.forgetPiece(h, 2);
+        System.out.println("forgetPiece(2) rc=" + rc);
+        long end = System.currentTimeMillis() + 30000;
+        while (System.currentTimeMillis() < end && !h.have_piece(2)) Thread.sleep(200);
+        torrent_status st3 = h.status();
+        System.out.println("redownload: have(2)=" + h.have_piece(2) + " state=" + st3.getState()
+            + " num_pieces=" + st3.getNum_pieces() + " payload_download=" + st3.getTotal_payload_download());
+        byte[] back = Files.readAllBytes(new File(data, "a.bin").toPath());
+        boolean same = Arrays.equals(back, fa);
+        System.out.println("a.bin byte-equal to reference: " + same);
+        boolean ok = check("rc==0", rc == 0)
+            & check("have(2) again", h.have_piece(2))
+            & check("state finished again", st3.getState().swigValue() == torrent_status.state_t.finished.swigValue())
+            & check("payload_download == PIECE", st3.getTotal_payload_download() == PIECE)
+            & check("a.bin byte-equal", same);
+        System.out.println(ok ? "RESULT: PASS" : "RESULT: FAIL");
+        seed.remove_torrent(hs);
+        ses.remove_torrent(h);
+        Thread.sleep(300);
+        seed.abort();
+        ses.abort();
+        seed.delete();
+        ses.delete();
+        System.exit(ok ? 0 : 1);
+    }
+
+    static session newSession() {
+        settings_pack sp = new settings_pack();
+        sp.set_int(settings_pack.int_types.alert_mask.swigValue(), alert_category_t.all().to_int());
+        sp.set_bool(settings_pack.bool_types.enable_dht.swigValue(), false);
+        sp.set_bool(settings_pack.bool_types.enable_lsd.swigValue(), false);
+        sp.set_bool(settings_pack.bool_types.enable_upnp.swigValue(), false);
+        sp.set_bool(settings_pack.bool_types.enable_natpmp.swigValue(), false);
+        sp.set_str(settings_pack.string_types.listen_interfaces.swigValue(), "127.0.0.1:0");
+        return new session(new session_params(sp));
+    }
+
+    static boolean check(String name, boolean cond) {
+        System.out.println((cond ? "  ok   " : "  FAIL ") + name);
+        return cond;
+    }
+
+    static torrent_status waitState(torrent_handle h, torrent_status.state_t want, long ms) throws Exception {
+        long end = System.currentTimeMillis() + ms;
+        torrent_status st = h.status();
+        while (System.currentTimeMillis() < end) {
+            st = h.status();
+            if (st.getState().swigValue() == want.swigValue()) return st;
+            Thread.sleep(100);
+        }
+        throw new RuntimeException("timeout waiting for state " + want + ", got " + st.getState());
+    }
+
+    static long statsCounter(session ses, String name) throws Exception {
+        int idx = libtorrent.find_metric_idx_ex(name);
+        if (idx < 0) throw new RuntimeException("metric not found: " + name);
+        ses.post_session_stats();
+        long end = System.currentTimeMillis() + 5000;
+        alert_ptr_vector v = new alert_ptr_vector();
+        while (System.currentTimeMillis() < end) {
+            ses.wait_for_alert_ms(500);
+            ses.pop_alerts(v);
+            for (int i = 0; i < v.size(); i++) {
+                alert al = v.get(i);
+                if (al.type() == session_stats_alert.alert_type) {
+                    return alert.cast_to_session_stats_alert(al).get_value(idx);
+                }
+            }
+        }
+        throw new RuntimeException("no session_stats_alert");
+    }
+
+    static byte[] pattern(int n, int seed) {
+        byte[] b = new byte[n];
+        new Random(seed).nextBytes(b);
+        return b;
+    }
+
+    static void write(File f, byte[] b) throws IOException {
+        try (FileOutputStream o = new FileOutputStream(f)) { o.write(b); }
+    }
+
+    // a minimal .torrent, written by hand (bencode + SHA-1 piece hashes)
+    static byte[] makeTorrent(byte[] fa, byte[] fb) throws Exception {
+        byte[] all = new byte[fa.length + fb.length];
+        System.arraycopy(fa, 0, all, 0, fa.length);
+        System.arraycopy(fb, 0, all, fa.length, fb.length);
+        MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+        ByteArrayOutputStream pieces = new ByteArrayOutputStream();
+        for (int off = 0; off < all.length; off += PIECE) {
+            sha1.reset();
+            sha1.update(all, off, Math.min(PIECE, all.length - off));
+            pieces.write(sha1.digest());
+        }
+        ByteArrayOutputStream o = new ByteArrayOutputStream();
+        o.write('d');
+        bstr(o, "info"); o.write('d');
+        bstr(o, "files"); o.write('l');
+        o.write('d'); bstr(o, "length"); bint(o, fa.length); bstr(o, "path"); o.write('l'); bstr(o, "a.bin"); o.write('e'); o.write('e');
+        o.write('d'); bstr(o, "length"); bint(o, fb.length); bstr(o, "path"); o.write('l'); bstr(o, "b.bin"); o.write('e'); o.write('e');
+        o.write('e');
+        bstr(o, "name"); bstr(o, "stand");
+        bstr(o, "piece length"); bint(o, PIECE);
+        bstr(o, "pieces"); bbytes(o, pieces.toByteArray());
+        o.write('e'); o.write('e');
+        return o.toByteArray();
+    }
+
+    static void bstr(OutputStream o, String s) throws IOException { bbytes(o, s.getBytes("UTF-8")); }
+    static void bbytes(OutputStream o, byte[] b) throws IOException {
+        o.write((b.length + ":").getBytes("US-ASCII")); o.write(b);
+    }
+    static void bint(OutputStream o, long v) throws IOException { o.write(("i" + v + "e").getBytes("US-ASCII")); }
+}
