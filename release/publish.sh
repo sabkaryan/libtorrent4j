@@ -75,7 +75,11 @@ Verify downloads against SHA256SUMS."
     git push origin "HEAD:refs/heads/$(git branch --show-current)"   # fast-forward only
     git tag -a "$TAG" -m "libtorrent4j $VERSION" "$FORK_COMMIT"
     git push origin "$TAG"
-    gh release create "$TAG" --verify-tag --title "libtorrent4j $VERSION" --notes "$NOTES" \
+    # gh picks its base repository by remote name and prefers "upstream" over
+    # "origin"; in a fork that would target the upstream project. Name the
+    # repository explicitly, from origin.
+    REPO=$(git remote get-url origin | sed -E 's#^(git@github\.com:|https://github\.com/)##; s#\.git$##')
+    gh release create "$TAG" --repo "$REPO" --verify-tag --title "libtorrent4j $VERSION" --notes "$NOTES" \
         "$OUT"/*.jar "$OUT/SHA256SUMS" "$OUT/provenance.json"
     echo "published $TAG"
     exit 0
