@@ -4,10 +4,16 @@
 # tagged v<version>. Consumers resolve them with an Ivy repository over the
 # release download URL, pattern "[revision]/[module]-[revision].[ext]".
 #
-#   release/publish.sh [--publish] [--platforms "android-arm android-arm64 android-x86_64 macos"]
+#   release/publish.sh [--platforms "android-arm android-arm64 android-x86_64 macos"]
+#   release/publish.sh --publish
 #
-# Without --publish everything is built and verified into release/out/ and the
-# release is not created. Requirements:
+# Two stages. Without --publish everything is built, verified and written to
+# release/out/ (jars, SHA256SUMS, provenance.json); nothing leaves the machine.
+# With --publish nothing is built: the files already in release/out/ are
+# re-verified against SHA256SUMS and provenance.json, the tree must be clean at
+# the commit recorded in provenance.json, and exactly those bytes are published
+# — the release carries what was inspected, not a fresh rebuild of it.
+# Requirements:
 #   - Docker (Android platforms are built in the image from swig/android-build)
 #   - a JDK for Gradle
 #   - for macos: a macOS host with DEVELOPMENT_ROOT pointing at boost_1_89_0
@@ -51,6 +57,30 @@ fi
 FORK_COMMIT=$(git rev-parse HEAD)
 LT_COMMIT=$(git -C swig/deps/libtorrent rev-parse HEAD)
 
+if [ "$PUBLISH" = 1 ]; then
+    [ -f "$OUT/provenance.json" ] && [ -f "$OUT/SHA256SUMS" ] \
+        || { echo "nothing to publish: run without --publish first" >&2; exit 2; }
+    built_at_commit=$(sed -n 's/^  "repository_commit": "\(.*\)",$/\1/p' "$OUT/provenance.json")
+    [ "$built_at_commit" = "$FORK_COMMIT" ] \
+        || { echo "release/out was built at $built_at_commit, HEAD is $FORK_COMMIT; rebuild" >&2; exit 2; }
+    grep -q "^  \"version\": \"$VERSION\",$" "$OUT/provenance.json" \
+        || { echo "provenance.json is not for version $VERSION" >&2; exit 2; }
+    (cd "$OUT" && shasum -a 256 -c SHA256SUMS)
+    # the checksums in provenance.json must be exactly those of SHA256SUMS
+    diff <(sed -n 's/^    "\(.*\)": "\([0-9a-f]\{64\}\)",\{0,1\}$/\2  \1/p' "$OUT/provenance.json" | sort) \
+         <(sort "$OUT/SHA256SUMS") \
+        || { echo "provenance.json checksums differ from SHA256SUMS" >&2; exit 1; }
+    NOTES="libtorrent4j $VERSION: upstream 2.1.0-38 (libtorrent $LT_COMMIT) plus torrent_handle::forget_piece(), see provenance.json.
+Verify downloads against SHA256SUMS."
+    git push origin "HEAD:refs/heads/$(git branch --show-current)"   # fast-forward only
+    git tag -a "$TAG" -m "libtorrent4j $VERSION" "$FORK_COMMIT"
+    git push origin "$TAG"
+    gh release create "$TAG" --verify-tag --title "libtorrent4j $VERSION" --notes "$NOTES" \
+        "$OUT"/*.jar "$OUT/SHA256SUMS" "$OUT/provenance.json"
+    echo "published $TAG"
+    exit 0
+fi
+
 rm -rf "$OUT" && mkdir -p "$OUT"
 
 # ---- native libraries ------------------------------------------------------
@@ -86,8 +116,20 @@ build_macos() {
     [ -n "${DEVELOPMENT_ROOT:-}" ] || { echo "set DEVELOPMENT_ROOT (boost_1_89_0 + openssl-macos)" >&2; exit 2; }
     command -v cmake >/dev/null || { echo "cmake is required on PATH for the macOS build" >&2; exit 2; }
     export CMAKE_POLICY_VERSION_MINIMUM=${CMAKE_POLICY_VERSION_MINIMUM:-3.5}
+    # __FILE__ and boost's source_location embed absolute source paths. The
+    # Android builds run in a container at /libtorrent4j and /boost; map the
+    # host paths to the same neutral prefixes. CCC_OVERRIDE_OPTIONS reaches
+    # every clang invocation, including the cmake builds of libjuice and
+    # usrsctp, whose CMAKE_C_FLAGS are fixed by libdatachannel's Jamfile.
+    local maps="" d
+    for d in "$ROOT" "$(cd "$ROOT" && pwd -P)"; do maps="$maps +-ffile-prefix-map=$d=/libtorrent4j"; done
+    for d in "$DEVELOPMENT_ROOT" "$(cd "$DEVELOPMENT_ROOT" && pwd -P)"; do
+        maps="$maps +-ffile-prefix-map=$d/boost_1_89_0=/boost +-ffile-prefix-map=$d/openssl-macos=/openssl +-ffile-prefix-map=$d=/dev"
+    done
+    export CCC_OVERRIDE_OPTIONS="#$maps"
     clean_datachannel swig/bin/release/macos/arm64
     (cd swig && ./build-macos-arm64.sh)
+    unset CCC_OVERRIDE_OPTIONS
     [ -f swig/bin/release/macos/arm64/libtorrent4j.dylib ]
 }
 
@@ -181,6 +223,26 @@ for a in $ASSETS; do
     cp "$a" "$OUT/"
 done
 
+# no artifact may carry a path of the build host: the checkout, the home
+# directory or the dependency root would leak into every copy downloaded
+HOST_PATHS=("$ROOT" "$(pwd -P)" "$HOME")
+[ -n "${DEVELOPMENT_ROOT:-}" ] && HOST_PATHS+=("$DEVELOPMENT_ROOT" "$(cd "$DEVELOPMENT_ROOT" && pwd -P)")
+SCAN=$(mktemp -d)
+for a in "$OUT"/*.jar; do
+    unzip -q -o "$a" -d "$SCAN/$(basename "$a" .jar)"
+done
+for hp in "${HOST_PATHS[@]}"; do
+    hits=$(grep -r -a -l -F -- "$hp" "$SCAN" || true)
+    if [ -n "$hits" ]; then
+        echo "HOST PATH '$hp' embedded in:" >&2
+        echo "$hits" | sed "s|$SCAN/||" >&2
+        rm -rf "$SCAN"
+        exit 1
+    fi
+done
+rm -rf "$SCAN"
+echo "no host paths in the artifacts (${#HOST_PATHS[@]} prefixes checked)"
+
 # ---- checksums and provenance --------------------------------------------------
 
 cd "$OUT"
@@ -204,23 +266,19 @@ $PATCHES
   "android_build_image": "$IMAGE_ID",
   "built_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "sha256": {
-$(awk '{printf "    \"%s\": \"%s\"%s\n", $2, $1, (NR==n?"":",")}' n=$(wc -l < SHA256SUMS) SHA256SUMS)
+$(awk -v n="$(wc -l < SHA256SUMS | tr -d ' ')" '{printf "    \"%s\": \"%s\"%s\n", $2, $1, (NR==n?"":",")}' SHA256SUMS)
   }
 }
 EOF
 cat SHA256SUMS
 echo "provenance: $OUT/provenance.json"
 
-# ---- release ----------------------------------------------------------------------
+# ---- self-check of what was written ----------------------------------------------
 
-NOTES="libtorrent4j $VERSION: upstream 2.1.0-38 (libtorrent $LT_COMMIT) plus torrent_handle::forget_piece(), see provenance.json.
-Platforms: $PLATFORMS. Verify downloads against SHA256SUMS."
-if [ "$PUBLISH" = 1 ]; then
-    git tag -a "$TAG" -m "libtorrent4j $VERSION" 2>/dev/null || echo "tag $TAG already exists"
-    git push origin "$TAG"
-    gh release create "$TAG" --title "libtorrent4j $VERSION" --notes "$NOTES" \
-        "$OUT"/*.jar "$OUT/SHA256SUMS" "$OUT/provenance.json"
-    echo "published $TAG"
-else
-    echo "dry run: not published. Re-run with --publish to tag $TAG and create the release."
-fi
+n_sums=$(wc -l < SHA256SUMS | tr -d ' ')
+n_prov=$(grep -cE '^    "[^"]+\.jar": "[0-9a-f]{64}",?$' provenance.json || true)
+[ "$n_sums" = "$n_prov" ] && [ "$n_sums" -gt 0 ] \
+    || { echo "provenance.json lists $n_prov checksums, SHA256SUMS has $n_sums" >&2; exit 1; }
+if command -v python3 >/dev/null; then python3 -m json.tool provenance.json >/dev/null; fi
+
+echo "built and verified into $OUT. Inspect it, then run: release/publish.sh --publish"
