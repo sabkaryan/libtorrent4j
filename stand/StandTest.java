@@ -39,6 +39,13 @@ import java.util.*;
  *                          piece 2 without any re-check. (need_save_resume_data
  *                          is already true right after checking, so this mode
  *                          cannot tell whether forget_piece set the flag.)</li>
+ * <li>{@code bench [pieces] [kib] [posix|default]} — timing of libtorrent's own
+ *                          work, to compare a release and a checked build: hash
+ *                          check to seeding, first piece and full download from
+ *                          a local seed. Defaults to 2000 pieces of 64 KiB:
+ *                          the checked build's invariant checks cost O(pieces)
+ *                          per picker operation, so a handful of pieces would
+ *                          show no difference whatever the real cost.</li>
  * <li>{@code offthread}  — positive control for a checked build: calls the
  *                          torrent method on the wrong thread; the process
  *                          must abort on is_single_thread().</li>
@@ -58,6 +65,12 @@ public class StandTest {
         String mode = a[0];
         File dir = new File(a[1]);
         dir.mkdirs();
+        if (mode.equals("bench")) {
+            bench(dir, a.length > 2 ? Integer.parseInt(a[2]) : 2000,
+                a.length > 3 ? Integer.parseInt(a[3]) : 64,
+                a.length > 4 ? a[4] : "posix");
+            return;
+        }
         File data = new File(dir, "stand");
         data.mkdirs();
         byte[] fa = pattern(PIECE * PIECES_PER_FILE, 0x11);
@@ -292,6 +305,105 @@ public class StandTest {
         ses.abort();
         ses.delete();
         System.exit(ok ? 0 : 1);
+    }
+
+    // bench: how much slower a library is in libtorrent's own work, to compare a
+    // release build with a checked one. One single-file torrent of <pieces>
+    // pieces of <kib> KiB. Invariant checks cost O(pieces) per picker operation,
+    // so the piece count, not the size, is what makes this realistic.
+    // Prints one line: BENCH check_ms=.. first_piece_ms=.. full_ms=..
+    // (a value of -1 means the 300 s cap was hit).
+    static void bench(File dir, int pieces, int kib, String diskIo) throws Exception {
+        int pieceLen = kib * 1024;
+        long total = (long) pieces * pieceLen;
+        File seedDir = new File(dir, "seed");
+        File leechDir = new File(dir, "leech");
+        seedDir.mkdirs();
+        leechDir.mkdirs();
+        File data = new File(seedDir, "bench.bin");
+        MessageDigest sha1 = MessageDigest.getInstance("SHA-1");
+        ByteArrayOutputStream hashes = new ByteArrayOutputStream();
+        Random r = new Random(0x5eed);
+        byte[] buf = new byte[pieceLen];
+        try (FileOutputStream o = new FileOutputStream(data)) {
+            for (int i = 0; i < pieces; i++) {
+                r.nextBytes(buf);
+                o.write(buf);
+                sha1.reset();
+                sha1.update(buf);
+                hashes.write(sha1.digest());
+            }
+        }
+        ByteArrayOutputStream t = new ByteArrayOutputStream();
+        t.write('d');
+        bstr(t, "info"); t.write('d');
+        bstr(t, "length"); bint(t, total);
+        bstr(t, "name"); bstr(t, "bench.bin");
+        bstr(t, "piece length"); bint(t, pieceLen);
+        bstr(t, "pieces"); bbytes(t, hashes.toByteArray());
+        t.write('e'); t.write('e');
+        File torrent = new File(dir, "bench.torrent");
+        write(torrent, t.toByteArray());
+        System.out.println("bench: " + pieces + " pieces x " + kib + " KiB = " + (total >> 20) + " MiB, disk io " + diskIo);
+
+        session seed = newSession(diskIo);
+        session leech = newSession(diskIo);
+        long cap = 300_000;
+
+        add_torrent_params ps = libtorrent.load_torrent_file(torrent.getAbsolutePath());
+        ps.setSave_path(seedDir.getAbsolutePath());
+        error_code ec = new error_code();
+        long t0 = System.nanoTime();
+        torrent_handle hs = seed.add_torrent(ps, ec);
+        long checkMs = waitFor(() -> hs.status().getState().swigValue() == torrent_status.state_t.seeding.swigValue(), t0, cap);
+
+        long firstMs = -1, fullMs = -1;
+        if (checkMs >= 0) {
+            add_torrent_params pl = libtorrent.load_torrent_file(torrent.getAbsolutePath());
+            pl.setSave_path(leechDir.getAbsolutePath());
+            torrent_handle hl = leech.add_torrent(pl, ec);
+            error_code ec2 = new error_code();
+            long t1 = System.nanoTime();
+            hl.connect_peer(new tcp_endpoint(address.from_string("127.0.0.1", ec2), seed.listen_port()));
+            firstMs = waitFor(() -> hl.status().getNum_pieces() >= 1, t1, cap);
+            if (firstMs >= 0) {
+                fullMs = waitFor(() -> hl.status().getNum_pieces() == pieces, t1, cap);
+            }
+            leech.remove_torrent(hl);
+        }
+        System.out.println("BENCH check_ms=" + checkMs + " first_piece_ms=" + firstMs + " full_ms=" + fullMs);
+        seed.remove_torrent(hs);
+        Thread.sleep(300);
+        seed.abort();
+        leech.abort();
+        seed.delete();
+        leech.delete();
+        System.exit(checkMs >= 0 && firstMs >= 0 && fullMs >= 0 ? 0 : 1);
+    }
+
+    interface Cond { boolean ok() throws Exception; }
+
+    // milliseconds from t0 until cond holds, polled every 20 ms; -1 after capMs
+    static long waitFor(Cond cond, long t0, long capMs) throws Exception {
+        while (true) {
+            long ms = (System.nanoTime() - t0) / 1_000_000;
+            if (cond.ok()) return ms;
+            if (ms > capMs) return -1;
+            Thread.sleep(20);
+        }
+    }
+
+    static session newSession(String diskIo) {
+        settings_pack sp = new settings_pack();
+        sp.set_int(settings_pack.int_types.alert_mask.swigValue(), 0);
+        sp.set_bool(settings_pack.bool_types.enable_dht.swigValue(), false);
+        sp.set_bool(settings_pack.bool_types.enable_lsd.swigValue(), false);
+        sp.set_bool(settings_pack.bool_types.enable_upnp.swigValue(), false);
+        sp.set_bool(settings_pack.bool_types.enable_natpmp.swigValue(), false);
+        sp.set_str(settings_pack.string_types.listen_interfaces.swigValue(), "127.0.0.1:0");
+        session_params params = new session_params(sp);
+        if (diskIo.equals("posix")) params.set_posix_disk_io_constructor();
+        return new session(params);
     }
 
     static session newSession() {

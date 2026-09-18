@@ -41,6 +41,13 @@ Order matters:
 3. Only then `forget`, `redownload` and `resume` on the checked build, and then
    on the release build, are evidence.
 
+To compare a release and a checked build on one device, run
+`bench [pieces] [kib] [posix|default]` with each library, several times each,
+alternating the order; `bench` prints one line with the hash-check time, the
+time to the first piece and the full download time from a local seed. Keep the
+piece count realistic (thousands): the checked build's invariant checks scale
+with it, and a small fixture would show no slowdown whatever the real cost.
+
 What the rig does not cover: a peer requesting from us a piece we have just
 forgotten (the stale-read guard in `peer_connection::on_disk_read_complete`
 and its `ses.num_stale_piece_rejects` counter), whether forget_piece itself

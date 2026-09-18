@@ -1,7 +1,7 @@
 #!/bin/bash
 # Runs StandTest on an Android device or emulator through app_process.
 #
-#   stand/run-android.sh <libtorrent4j.so> <mode> [adb serial]
+#   stand/run-android.sh <libtorrent4j.so> <mode> [adb serial] [mode arguments...]
 #
 # <libtorrent4j.so> is a library built by swig/android-build for the device's
 # ABI, either the release one (swig/bin/release/android/<abi>/libtorrent4j.so)
@@ -16,6 +16,8 @@ set -euo pipefail
 SO=${1:?path to libtorrent4j.so}
 MODE=${2:?mode}
 SERIAL=${3:-}
+shift $(( $# < 3 ? $# : 3 ))
+MODE_ARGS="$*"
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/.." && pwd)
 SDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:?set ANDROID_SDK_ROOT}}
@@ -29,7 +31,7 @@ JAR="$ROOT/build/libs/libtorrent4j-$VERSION.jar"
 OUT="$HERE/build"
 rm -rf "$OUT" && mkdir -p "$OUT/classes"
 javac -source 8 -target 8 -cp "$JAR" -d "$OUT/classes" "$HERE/StandTest.java"
-"$D8" --min-api 26 --output "$OUT/stand.zip" "$OUT/classes/StandTest.class" "$JAR"
+"$D8" --min-api 26 --output "$OUT/stand.zip" "$OUT"/classes/StandTest*.class "$JAR"
 
 T=/data/local/tmp/lt4j-stand
 $ADB shell "mkdir -p $T"
@@ -38,6 +40,6 @@ $ADB push "$SO" "$T/libtorrent4j.so" >/dev/null
 $ADB logcat -c || true
 # stdout of a process killed by SIGABRT is lost; the assertion text is printed
 # to stderr before abort and both are shown here
-$ADB shell "cd $T && rm -rf w && CLASSPATH=$T/stand.zip app_process -Dlibtorrent4j.jni.path=$T/libtorrent4j.so $T StandTest $MODE $T/w" 2>&1 || true
+$ADB shell "cd $T && rm -rf w && CLASSPATH=$T/stand.zip app_process -Dlibtorrent4j.jni.path=$T/libtorrent4j.so $T StandTest $MODE $T/w $MODE_ARGS" 2>&1 || true
 echo "--- fatal signals in logcat (expected only for the positive controls on a checked build):"
 $ADB logcat -d 2>/dev/null | grep -E "Fatal signal|assertion failed" | head -5 || true
