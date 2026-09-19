@@ -21,6 +21,9 @@ import java.util.*;
  *                     first far piece; with seed=... and crc=control it runs
  *                     the same jump without any ceiling (all pieces wanted)
  *             idle  — stay finished for dwellMs, then raise; for seed=busy
+ *             toggle — stop/go cycles (steps = cycles, dwellMs = the stop), crc is
+ *                     "<mechanism>:<close_redundant_connections>", mechanism
+ *                     prio | upload | pause | pause-am (see toggle())
  *   seed      free      — one seed, 8 unchoke slots
  *             contended — one seed, 1 unchoke slot, a competing downloader
  *             busy      — one seed near its connection limit with a short
@@ -99,9 +102,12 @@ public class CeilingTest {
         // ---- downloader
         settings_pack ls = base();
         boolean control = crc.equals("control");
+        // toggle: crc is "<mechanism>:<close_redundant_connections>", e.g. prio:true
+        String mech = scenario.equals("toggle") ? crc.split(":")[0] : null;
+        if (mech != null) crc = crc.split(":")[1];
         ls.set_bool(settings_pack.bool_types.close_redundant_connections.swigValue(), crc.equals("true"));
         session leech = open(ls);
-        int ceiling = control ? pieces : (scenario.equals("slide") ? 8 : stepPieces);
+        int ceiling = control || scenario.equals("toggle") ? pieces : (scenario.equals("slide") ? 8 : stepPieces);
         torrent_handle h = add(leech, torrent, new File(dir, "leech"), prios(pieces, ceiling));
         long tConnect = now();
         for (int port : ports) connect(h, port);
@@ -111,6 +117,13 @@ public class CeilingTest {
         w.hs = hs;
 
         if (scenario.equals("seek")) { seek(w, h, pieces, stepPieces, dwellMs, control); finish(dir); return; }
+        if (scenario.equals("toggle")) {
+            // stop/go cycles: steps = cycles, dwellMs = gap
+            System.out.printf("toggle: mech=%s close_redundant_connections=%s%n", mech, crc);
+            toggle(w, h, pieces, mech, crc.equals("true"), steps, dwellMs);
+            finish(dir);
+            return;
+        }
         if (scenario.equals("slide")) {
             // ceiling 0: only the playback window is wanted. steps = rest at 0 ("false"),
             // control = rest at normal priority, interested all the time
@@ -183,6 +196,101 @@ public class CeilingTest {
             }
             w.drops = 0;
         }
+    }
+
+    // toggle: download for ON_MS, stop, wait gapMs, go again. Mechanisms:
+    //   prio     — every piece to priority 0 and back (the torrent becomes finished)
+    //   upload   — torrent upload_mode on and off (connections kept, requests cancelled)
+    //   pause    — torrent pause()/resume()
+    //   pause-am — the same, auto_managed left on (the default for added torrents);
+    //              the others clear it first, as an embedding application would
+    // Per cycle: bytes still arriving after the stop (overshoot) and when the last of
+    // them came; whether the flow had actually stopped by "go" (no byte in the last
+    // 100 ms); then, counting only what arrives after "go": first byte, and the rate
+    // back to 80 % of the rate before the stop.
+    // "unstick" (crc=true, prio): no recovery within STUCK_MS -> a new, never seen
+    // peer is added the way tracker and DHT replies add one (torrent::add_peer),
+    // then the rig waits for the seed to come back; every such cycle adds its own.
+    static final long ON_MS = 2000, TRACK_MS = 90_000, STUCK_MS = 15_000;
+
+    static void toggle(Watch w, torrent_handle h, int pieces, String mech, boolean crcOn, int cycles, long gapMs) throws Exception {
+        if (!mech.equals("pause-am")) {
+            // the default add flags carry "paused": with auto_managed gone, nobody but
+            // us will ever resume the torrent, so resume() must follow the unset
+            h.unset_flags(libtorrent.getAuto_managed());
+            h.resume();
+        }
+        byte_vector all0 = prios(pieces, 0), all4 = prios(pieces, pieces);
+        w.until(() -> w.bytes > 0, 60_000);
+        for (int c = 1; c <= cycles; c++) {
+            w.idle(ON_MS);
+            double preRate = w.rateOver(1500);
+            long b0 = w.bytes, tStop = now();
+            int peersBefore = w.peers;
+            w.drops = 0;
+            switch (mech) {
+                case "prio": h.prioritize_pieces_ex(all0); break;
+                case "upload": h.set_flags(libtorrent.getUpload_mode()); break;
+                default: h.pause(); break;
+            }
+            // watch the gap: overshoot, when the last byte came, whether the stop held
+            long lastByteAt = tStop, lastBytes = b0, end = tStop + gapMs, stopLeakedAt = -1;
+            int peersMinInGap = peersBefore;
+            boolean interestedInGap = false;
+            while (now() < end) {
+                w.tick();
+                if (w.bytes > lastBytes) { lastBytes = w.bytes; lastByteAt = now(); }
+                peersMinInGap = Math.min(peersMinInGap, w.peers);
+                if (now() - tStop > 500 && w.interesting) interestedInGap = true;
+                if (stopLeakedAt < 0 && !stopHolds(h, mech)) stopLeakedAt = now();
+                Thread.sleep(10);
+            }
+            long overshoot = w.bytes - b0;
+            int dropsInGap = w.drops;
+            long tGo = now(), base = w.bytes;
+            boolean flowStopped = tGo - lastByteAt >= 100;
+            switch (mech) {
+                case "prio": h.prioritize_pieces_ex(all4); break;
+                case "upload": h.unset_flags(libtorrent.getUpload_mode()); break;
+                default: h.resume(); break;
+            }
+            boolean stuckCase = mech.equals("prio") && crcOn;
+            long[] ev = w.track(() -> w.recovered(tGo, preRate), base, stuckCase ? STUCK_MS : TRACK_MS);
+            System.out.printf("CYCLE %d mech=%s gap_ms=%d pre_rate_KiBs=%.0f overshoot_KiB=%d last_byte_after_stop_ms=%d flow_stopped=%s "
+                    + "stop_undone_after_ms=%s interested_in_gap=%s peers_before=%d peers_min_in_gap=%d drops_in_gap=%d "
+                    + "go_to_first_byte_ms=%s go_to_rate_recovered_ms=%s peers_after=%d drops_after_go=%d%n",
+                c, mech, gapMs, preRate / 1024, overshoot / 1024, lastByteAt - tStop, flowStopped,
+                rel(stopLeakedAt, tStop), interestedInGap, peersBefore, peersMinInGap, dropsInGap,
+                rel(ev[2], tGo), rel(ev[3], tGo), w.peers, w.drops - dropsInGap);
+            if (ev[3] < 0 && stuckCase) unstick(w, h, c, tStop, tGo, preRate);
+        }
+    }
+
+    static boolean stopHolds(torrent_handle h, String mech) {
+        torrent_flags_t f = h.flags(), z = new torrent_flags_t();
+        switch (mech) {
+            case "prio": return true; // nothing in libtorrent flips priorities back
+            case "upload": return !f.and_(libtorrent.getUpload_mode()).eq(z);
+            default: return !f.and_(libtorrent.getPaused()).eq(z);
+        }
+    }
+
+    static void unstick(Watch w, torrent_handle h, int cycle, long tDrop, long tGo, double preRate) throws Exception {
+        // an empty downloader nobody has seen: not a seed, so it is a connect candidate
+        settings_pack ns = base();
+        ns.set_int(settings_pack.int_types.upload_rate_limit.swigValue(), 1024);
+        // and it must not compete for the seed's rate once PEX tells it about the seed
+        ns.set_int(settings_pack.int_types.download_rate_limit.swigValue(), 16 * 1024);
+        session fresh = open(ns);
+        File dir = new File(System.getProperty("java.io.tmpdir"), "ceiling-" + ProcessHandle.current().pid());
+        torrent_handle hf = add(fresh, new File(dir, "data.torrent"), new File(dir, "fresh" + cycle), null); // removed with dir by finish()
+        waitState(hf, torrent_status.state_t.downloading, 30_000);
+        long tAdd = now(), base = w.bytes;
+        connect(h, fresh.listen_port());
+        long[] ev = w.track(() -> w.recovered(tAdd, preRate), base, TRACK_MS);
+        System.out.printf("UNSTICK cycle=%d new_peer_added_after_drop_ms=%d raise_after_drop_ms=%d first_byte_after_drop_ms=%s "
+                + "rate_recovered_after_drop_ms=%s peers=%d%n",
+            cycle, tAdd - tDrop, tGo - tDrop, rel(ev[2], tDrop), rel(ev[3], tDrop), w.peers);
     }
 
     // slide: a playback clock at bitrateKiB consumes one piece at a time; the
@@ -263,7 +371,7 @@ public class CeilingTest {
         final peer_info_vector pv = new peer_info_vector();
         final ArrayDeque<long[]> samples = new ArrayDeque<>(); // {t, bytes}
         int ceilingTarget, have, peers, drops;
-        long bytes;
+        long bytes, bytesOffset, lastTp;
         boolean interesting, unchokedByAny;
         String state = "?";
         final List<long[]> stateEvents = new ArrayList<>(); // {t, stateOrdinal}
@@ -276,7 +384,12 @@ public class CeilingTest {
         void tick() {
             torrent_status st = h.status();
             have = st.getNum_pieces();
-            bytes = st.getTotal_payload_download();
+            // total_payload_download restarts from zero on every resume(); all_time_download
+            // does not, but moves only once a second. Keep the live one, carried over resets.
+            long tp = st.getTotal_payload_download();
+            if (tp < lastTp) bytesOffset += lastTp;
+            lastTp = tp;
+            bytes = bytesOffset + tp;
             state = st.getState().toString();
             long t = now();
             samples.addLast(new long[]{t, bytes});
@@ -299,6 +412,11 @@ public class CeilingTest {
                     drops++;
                     peer_disconnected_alert d = alert.cast_to_peer_disconnected_alert(al);
                     System.out.println("  [" + t + "] DISCONNECT " + d.getError().message() + " op=" + d.getOp() + " reason=" + d.getReason());
+                } else if (ty == peer_connect_alert.alert_type) {
+                    peer_connect_alert pc = alert.cast_to_peer_connect_alert(al);
+                    System.out.println("  [" + t + "] CONNECT out " + pc.get_endpoint().port());
+                } else if (ty == incoming_connection_alert.alert_type) {
+                    System.out.println("  [" + t + "] CONNECT in");
                 } else if (ty == state_changed_alert.alert_type) {
                     state_changed_alert sc = alert.cast_to_state_changed_alert(al);
                     stateEvents.add(new long[]{t, sc.getState().swigValue()});
@@ -315,6 +433,18 @@ public class CeilingTest {
             for (long[] s : samples) if (s[0] >= t - ms) { first = s; break; }
             if (first == null || last == null || last[0] == first[0]) return 0;
             return (last[1] - first[1]) * 1000.0 / (last[0] - first[0]);
+        }
+
+        // rate back to 80 % of `pre`, from samples taken after `since` only (a window of
+        // up to 1 s, at least 250 ms): bytes that were in flight before "go" do not count
+        boolean recovered(long since, double pre) {
+            long t = now();
+            if (t - since < 250) return false;
+            long from = Math.max(since, t - 1000);
+            long[] first = null, last = samples.peekLast();
+            for (long[] s : samples) if (s[0] >= from) { first = s; break; }
+            if (first == null || last == null || last[0] - first[0] < 200) return false;
+            return (last[1] - first[1]) * 1000.0 / (last[0] - first[0]) >= 0.8 * pre;
         }
 
         long until(Cond c, long capMs) throws Exception {
