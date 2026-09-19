@@ -64,7 +64,11 @@ rate limits and would hide the cost being measured.
          -Dlibtorrent4j.jni.path=<libtorrent4j.dylib|.so> -cp <jar>:out CeilingTest <scenario> <seeds> <crc> ...
 
 Scenarios and parameters are documented in the class comments (`steps`,
-`seek`, `slide`, seed kinds `free`, `contended`, `busy`, `mixed:N:K`).
+`seek`, `slide`, `toggle`, seed kinds `free`, `contended`, `busy`, `mixed:N:K`).
+`toggle` repeats stop/go cycles with one stop mechanism (all priorities 0,
+`upload_mode`, `pause()`) and either value of `close_redundant_connections`;
+it counts bytes with `total_payload_download` carried over resets, because
+that counter restarts from zero on every `resume()`.
 Run them without a garbage collector (Epsilon GC) as above: the rigs poll
 libtorrent every few milliseconds and create many short-lived SWIG objects,
 whose finalizers free native memory in an undefined order and can crash a
