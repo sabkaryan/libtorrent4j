@@ -221,6 +221,10 @@ public class CeilingTest {
             h.resume();
         }
         byte_vector all0 = prios(pieces, 0), all4 = prios(pieces, pieces);
+        // CEILING_DEADPEER: know one non-seed we never manage to connect to, the way a real
+        // swarm always knows a few. It keeps peer_list's candidate count off zero, which is
+        // the condition the whole stuck case rests on.
+        if (System.getenv("CEILING_DEADPEER") != null) { connect(h, 9); connect(h, 1); }
         w.until(() -> w.bytes > 0, 60_000);
         for (int c = 1; c <= cycles; c++) {
             w.idle(ON_MS);
@@ -247,6 +251,8 @@ public class CeilingTest {
             }
             long overshoot = w.bytes - b0;
             int dropsInGap = w.drops;
+            // the whole stuck case hinges on this being zero at the moment of "go"
+            int candidatesAtGo = h.status().getConnect_candidates();
             long tGo = now(), base = w.bytes;
             boolean flowStopped = tGo - lastByteAt >= 100;
             switch (mech) {
@@ -257,10 +263,10 @@ public class CeilingTest {
             boolean stuckCase = mech.equals("prio") && crcOn;
             long[] ev = w.track(() -> w.recovered(tGo, preRate), base, stuckCase ? STUCK_MS : TRACK_MS);
             System.out.printf("CYCLE %d mech=%s gap_ms=%d pre_rate_KiBs=%.0f overshoot_KiB=%d last_byte_after_stop_ms=%d flow_stopped=%s "
-                    + "stop_undone_after_ms=%s interested_in_gap=%s peers_before=%d peers_min_in_gap=%d drops_in_gap=%d "
+                    + "stop_undone_after_ms=%s interested_in_gap=%s peers_before=%d peers_min_in_gap=%d drops_in_gap=%d candidates_at_go=%d "
                     + "go_to_first_byte_ms=%s go_to_rate_recovered_ms=%s peers_after=%d drops_after_go=%d%n",
                 c, mech, gapMs, preRate / 1024, overshoot / 1024, lastByteAt - tStop, flowStopped,
-                rel(stopLeakedAt, tStop), interestedInGap, peersBefore, peersMinInGap, dropsInGap,
+                rel(stopLeakedAt, tStop), interestedInGap, peersBefore, peersMinInGap, dropsInGap, candidatesAtGo,
                 rel(ev[2], tGo), rel(ev[3], tGo), w.peers, w.drops - dropsInGap);
             if (ev[3] < 0 && stuckCase) unstick(w, h, c, tStop, tGo, preRate);
         }
