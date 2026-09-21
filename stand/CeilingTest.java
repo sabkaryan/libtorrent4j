@@ -124,10 +124,28 @@ public class CeilingTest {
             finish(dir);
             return;
         }
+        if (scenario.equals("cap")) {
+            // how much a rate cap lets through beyond "cap x elapsed": the burst the
+            // bandwidth channel can hand out at once, and how long it takes to settle.
+            // CEILING_CAP_KIBS: the cap itself, so that rateKiB stays the seed's rate and
+            // the seed can actually outrun the cap
+            int capKiB = System.getenv("CEILING_CAP_KIBS") != null
+                ? Integer.parseInt(System.getenv("CEILING_CAP_KIBS")) : rateKiB;
+            // CEILING_CAP2_KIBS: raise the cap to this at half time, to see whether the
+            // bucket filled under the low cap pays out at the new one
+            int cap2 = System.getenv("CEILING_CAP2_KIBS") != null
+                ? Integer.parseInt(System.getenv("CEILING_CAP2_KIBS")) : 0;
+            cap(w, h, pieces, capKiB * 1024, cap2 * 1024, dwellMs);
+            finish(dir);
+            return;
+        }
         if (scenario.equals("lowlimit")) {
             // the brake the owner proposed: nothing is filtered (so no finished at all),
             // growth is held by a torrent-wide rate limit instead. rateKiB is that limit.
-            lowlimit(w, h, pieces, rateKiB, dwellMs);
+            // CEILING_LIMIT_BPS: the leech's own cap, so rateKiB stays the seed's rate
+            int limBps = System.getenv("CEILING_LIMIT_BPS") != null
+                ? Integer.parseInt(System.getenv("CEILING_LIMIT_BPS")) : rateKiB;
+            lowlimit(w, h, limBps, pieces, dwellMs);
             finish(dir);
             return;
         }
@@ -306,11 +324,61 @@ public class CeilingTest {
             cycle, tAdd - tDrop, tGo - tDrop, rel(ev[2], tDrop), rel(ev[3], tDrop), w.peers);
     }
 
+    // cap: everything wanted, the torrent's own download limit set to limitBps from the
+    // first second. Counting rule, fixed before the run: burst = max over time of
+    // (delivered - limit x elapsed); settled = the first second after that maximum whose
+    // delivery is at most 1.1 x limit. One line per second, written as it happens.
+    static void cap(Watch w, torrent_handle h, int pieces, int limitBps, int raiseToBps, long durationMs) throws Exception {
+        h.prioritize_pieces_ex(prios(pieces, pieces));
+        h.set_download_limit(limitBps);
+        long t0 = now(), base = -1, prevBytes = 0, maxBurst = 0, maxBurstAt = -1, settledAt = -1, maxSec = 0;
+        long nextSec = t0 + 1000, lastBytes = -1, maxStep = 0, maxStepAt = -1;
+        long raisedAt = -1, bytesAtRaise = 0, firstSecAfterRaise = -1;
+        while (now() - t0 < durationMs) {
+            w.tick();
+            if (base < 0) { base = w.bytes; prevBytes = 0; lastBytes = w.bytes; }
+            // the lump: what arrives between two samples. This, not the cumulative excess,
+            // is what can overshoot a threshold checked at intervals.
+            if (w.bytes - lastBytes > maxStep) { maxStep = w.bytes - lastBytes; maxStepAt = now() - t0; }
+            lastBytes = w.bytes;
+            long got = w.bytes - base, elapsed = now() - t0;
+            long burst = got - (long) (limitBps * (elapsed / 1000.0));
+            if (burst > maxBurst) { maxBurst = burst; maxBurstAt = elapsed; settledAt = -1; }
+            if (raiseToBps > 0 && raisedAt < 0 && now() - t0 >= durationMs / 2) {
+                raisedAt = now() - t0;
+                bytesAtRaise = got;
+                h.set_download_limit(raiseToBps);
+                System.out.printf("CAP_RAISE t=%dms from_KiBs=%d to_KiBs=%d%n", raisedAt, limitBps / 1024, raiseToBps / 1024);
+            }
+            if (raisedAt > 0 && firstSecAfterRaise < 0 && now() - t0 >= raisedAt + 1000)
+                firstSecAfterRaise = got - bytesAtRaise;
+            if (now() >= nextSec) {
+                long thisSec = got - prevBytes;
+                prevBytes = got;
+                maxSec = Math.max(maxSec, thisSec);
+                if (settledAt < 0 && maxBurstAt >= 0 && elapsed > maxBurstAt && thisSec <= 1.1 * limitBps)
+                    settledAt = elapsed;
+                System.out.printf("CAP_SEC t=%ds got_KiB=%d over_limit_KiB=%d burst_now_KiB=%d%n",
+                    elapsed / 1000, thisSec / 1024, (thisSec - limitBps) / 1024, burst / 1024);
+                nextSec += 1000;
+            }
+            Thread.sleep(20);
+        }
+        System.out.printf("CAP limit_KiBs=%d duration_ms=%d total_KiB=%d avg_KiBs=%d max_sec_KiB=%d "
+                + "max_burst_KiB=%d max_burst_at_ms=%d settled_at_ms=%s max_lump_KiB=%d max_lump_at_ms=%d peers=%d%n",
+            limitBps / 1024, durationMs, (w.bytes - base) / 1024, (w.bytes - base) / 1024 / Math.max(1, durationMs / 1000),
+            maxSec / 1024, maxBurst / 1024, maxBurstAt, settledAt < 0 ? "not-seen" : Long.toString(settledAt),
+            maxStep / 1024, maxStepAt, w.peers);
+        if (raisedAt > 0)
+            System.out.printf("CAP_AFTER_RAISE raised_at_ms=%d new_limit_KiBs=%d first_second_KiB=%d (=%.2f x new limit)%n",
+                raisedAt, raiseToBps / 1024, firstSecAfterRaise / 1024, firstSecAfterRaise / (double) raiseToBps);
+    }
+
     // lowlimit: window at Top, everything else at Low (wanted, so never finished), and
     // the torrent's own download limit set to limitBps. Answers two things: does the
     // torrent stay out of finished, and do the seeds keep us unchoked while we ask for
     // almost nothing and give nothing back.
-    static void lowlimit(Watch w, torrent_handle h, int pieces, int limitBps, long durationMs) throws Exception {
+    static void lowlimit(Watch w, torrent_handle h, int limitBps, int pieces, long durationMs) throws Exception {
         byte_vector v = new byte_vector();
         for (int i = 0; i < pieces; i++) v.add(Byte.valueOf((byte) (i < 8 ? 7 : 1)));
         h.prioritize_pieces_ex(v);
@@ -324,7 +392,12 @@ public class CeilingTest {
             long t = now();
             if (b0 < 0 && w.bytes > 0) b0 = w.bytes;
             if (w.unchokedByAny) unchokedMs += t - lastTick;
-            if (w.unchokedByAny != wasUnchoked) { chokeFlips++; wasUnchoked = w.unchokedByAny; }
+            if (w.unchokedByAny != wasUnchoked) {
+                chokeFlips++;
+                wasUnchoked = w.unchokedByAny;
+                System.out.printf("  [%d] %s peers=%d bytes_KiB=%d%n", t - t0,
+                    wasUnchoked ? "UNCHOKED" : "CHOKED", w.peers, w.bytes / 1024);
+            }
             if (w.state.equals("finished")) finishedTicks++;
             lastTick = t;
             Thread.sleep(50);
@@ -459,10 +532,12 @@ public class CeilingTest {
                 if (ty == peer_disconnected_alert.alert_type) {
                     drops++;
                     peer_disconnected_alert d = alert.cast_to_peer_disconnected_alert(al);
-                    System.out.println("  [" + t + "] DISCONNECT " + d.getError().message() + " op=" + d.getOp() + " reason=" + d.getReason());
+                    tcp_endpoint dre = d.get_endpoint();
+                    System.out.println("  [" + t + "] DISCONNECT " + dre.address().to_string() + ":" + dre.port()
+                        + " " + d.getError().message() + " op=" + d.getOp() + " reason=" + d.getReason());
                 } else if (ty == peer_connect_alert.alert_type) {
                     peer_connect_alert pc = alert.cast_to_peer_connect_alert(al);
-                    System.out.println("  [" + t + "] CONNECT out " + pc.get_endpoint().port());
+                    System.out.println("  [" + t + "] CONNECT out " + pc.get_endpoint().address().to_string() + ":" + pc.get_endpoint().port());
                 } else if (ty == incoming_connection_alert.alert_type) {
                     System.out.println("  [" + t + "] CONNECT in");
                 } else if (ty == state_changed_alert.alert_type) {
