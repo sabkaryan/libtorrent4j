@@ -130,6 +130,14 @@ public class CeilingTest {
             finish(dir);
             return;
         }
+        if (scenario.equals("tail")) {
+            // what is already committed when the brake comes down: outstanding requests.
+            // Warm up at full speed, snapshot each peer's queue, cap to 1 byte/s, watch the
+            // leak, then lift the cap and watch the committed bytes land.
+            tail(w, h, pieces, dwellMs);
+            finish(dir);
+            return;
+        }
         if (scenario.equals("cap")) {
             // how much a rate cap lets through beyond "cap x elapsed": the burst the
             // bandwidth channel can hand out at once, and how long it takes to settle.
@@ -328,6 +336,45 @@ public class CeilingTest {
         System.out.printf("UNSTICK cycle=%d new_peer_added_after_drop_ms=%d raise_after_drop_ms=%d first_byte_after_drop_ms=%s "
                 + "rate_recovered_after_drop_ms=%s peers=%d%n",
             cycle, tAdd - tDrop, tGo - tDrop, rel(ev[2], tDrop), rel(ev[3], tDrop), w.peers);
+    }
+
+    static void tail(Watch w, torrent_handle h, int pieces, long warmMs) throws Exception {
+        h.prioritize_pieces_ex(prios(pieces, pieces));
+        long t0 = now();
+        while (now() - t0 < warmMs) { w.tick(); Thread.sleep(20); }
+        double rate = w.rateOver(2000);
+        // queue depth per peer at the moment of braking
+        peer_info_vector pv = new peer_info_vector();
+        h.get_peer_info(pv);
+        int peers = (int) pv.size(), qSum = 0;
+        StringBuilder q = new StringBuilder();
+        for (int i = 0; i < pv.size(); i++) {
+            int dq = pv.get(i).getDownload_queue_length();
+            qSum += dq;
+            q.append(dq).append(' ');
+        }
+        long bBrake = w.bytes, tBrake = now();
+        h.set_download_limit(1);
+        long lastByteAt = tBrake, lastBytes = bBrake;
+        while (now() - tBrake < 10_000) {
+            w.tick();
+            if (w.bytes > lastBytes) { lastBytes = w.bytes; lastByteAt = now(); }
+            Thread.sleep(20);
+        }
+        long leak = w.bytes - bBrake;
+        // now lift it: what was already committed has to land
+        long bLift = w.bytes, tLift = now();
+        h.set_download_limit(0);
+        long firstSec = -1;
+        while (now() - tLift < 4000) {
+            w.tick();
+            if (firstSec < 0 && now() - tLift >= 1000) firstSec = w.bytes - bLift;
+            Thread.sleep(20);
+        }
+        System.out.printf("TAIL peers=%d rate_KiBs=%.0f queues=[%s] queued_blocks=%d committed_KiB=%d "
+                + "leak_10s_KiB=%d last_leak_ms=%d after_lift_1s_KiB=%d after_lift_4s_KiB=%d%n",
+            peers, rate / 1024, q.toString().trim(), qSum, qSum * 16,
+            leak / 1024, lastByteAt - tBrake, firstSec / 1024, (w.bytes - bLift) / 1024);
     }
 
     // cap: everything wanted, the torrent's own download limit set to limitBps from the
