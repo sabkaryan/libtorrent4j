@@ -41,6 +41,7 @@ public class CeilingTest {
     static final int PIECE = 256 * 1024;
     static final long T0 = System.nanoTime();
     static final boolean DEBUG = System.getenv("CEILING_DEBUG") != null;
+    static final boolean SEEDLOG = System.getenv("CEILING_SEEDLOG") != null;
     static long now() { return (System.nanoTime() - T0) / 1_000_000; }
 
     public static void main(String[] a) throws Exception {
@@ -101,6 +102,11 @@ public class CeilingTest {
 
         // ---- downloader
         settings_pack ls = base();
+        // CEILING_PEER_TIMEOUT: the downloader's peer_timeout (default 120 s), to tell a
+        // drop caused by that timer from a drop caused by anything else
+        if (System.getenv("CEILING_PEER_TIMEOUT") != null)
+            ls.set_int(settings_pack.int_types.peer_timeout.swigValue(),
+                Integer.parseInt(System.getenv("CEILING_PEER_TIMEOUT")));
         boolean control = crc.equals("control");
         // toggle: crc is "<mechanism>:<close_redundant_connections>", e.g. prio:true
         String mech = scenario.equals("toggle") ? crc.split(":")[0] : null;
@@ -383,7 +389,7 @@ public class CeilingTest {
         for (int i = 0; i < pieces; i++) v.add(Byte.valueOf((byte) (i < 8 ? 7 : 1)));
         h.prioritize_pieces_ex(v);
         h.set_download_limit(limitBps);
-        long t0 = now(), unchokedMs = 0, lastTick = now();
+        long t0 = now(), unchokedMs = 0, lastTick = now(), nextSnap = now();
         int chokeFlips = 0, finishedTicks = 0;
         boolean wasUnchoked = false;
         long b0 = -1;
@@ -399,6 +405,22 @@ public class CeilingTest {
                     wasUnchoked ? "UNCHOKED" : "CHOKED", w.peers, w.bytes / 1024);
             }
             if (w.state.equals("finished")) finishedTicks++;
+            if (t >= nextSnap) {
+                nextSnap = t + 1000;
+                peer_info_vector pv = new peer_info_vector();
+                h.get_peer_info(pv);
+                StringBuilder sb = new StringBuilder("  [" + t + "] SNAP bytes_KiB=" + w.bytes / 1024 + " peers=" + pv.size());
+                for (int i = 0; i < pv.size(); i++) {
+                    peer_info p = pv.get(i);
+                    sb.append(" {").append(p.remote_endpoint().port())
+                      .append(" last_active_s=").append(p.get_last_active())
+                      .append(" last_request_s=").append(p.get_last_request())
+                      .append(" dlq=").append(p.getDownload_queue_length())
+                      .append(" unchoked=").append(p.getFlags().and_(peer_info.remote_choked).eq(new peer_flags_t()))
+                      .append("}");
+                }
+                System.out.println(sb);
+            }
             lastTick = t;
             Thread.sleep(50);
         }
@@ -547,7 +569,19 @@ public class CeilingTest {
                     flushEvents.add(t);
                 }
             }
-            for (session o : otherSeeds) o.pop_alerts(v); // drained; seed-side disconnects show up on the downloader too
+            // the seeds' own alerts: who hung up is not decidable from our side alone
+            for (session o : otherSeeds) {
+                o.pop_alerts(v);
+                if (!SEEDLOG) continue;
+                for (int i = 0; i < v.size(); i++) {
+                    alert al = v.get(i);
+                    if (al.type() != peer_disconnected_alert.alert_type) continue;
+                    peer_disconnected_alert d = alert.cast_to_peer_disconnected_alert(al);
+                    tcp_endpoint re = d.get_endpoint();
+                    System.out.println("  [" + t + "] SEED-SIDE DISCONNECT of " + re.address().to_string() + ":" + re.port()
+                        + " " + d.getError().message() + " op=" + d.getOp() + " reason=" + d.getReason());
+                }
+            }
         }
 
         double rateOver(long ms) {
