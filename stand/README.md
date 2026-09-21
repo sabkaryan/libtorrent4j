@@ -74,6 +74,15 @@ libtorrent every few milliseconds and create many short-lived SWIG objects,
 whose finalizers free native memory in an undefined order and can crash a
 long run (observed as SIGSEGV on the finalizer thread).
 
+Which way this rig is biased, named after three findings in a row had to be
+narrowed: **it overstates anything about seeds** (there is one seed and an
+otherwise empty peer list, so "seeds are gone for good" and "a minute with no
+rate" are both upper bounds — a real swarm has several seeds whose minutes are
+not synchronised), and **it understates the overshoot after a stop** (loopback
+has no RTT, so the "rate x RTT in flight per serving peer" term is missing).
+Where it compresses time, the scenario says so (`inactivity_timeout` 20 s
+instead of 600 s).
+
 What the rig does not cover: a peer requesting from us a piece we have just
 forgotten (the stale-read guard in `peer_connection::on_disk_read_complete`
 and its `ses.num_stale_piece_rejects` counter), whether forget_piece itself
