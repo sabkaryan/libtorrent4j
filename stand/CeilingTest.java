@@ -124,6 +124,13 @@ public class CeilingTest {
             finish(dir);
             return;
         }
+        if (scenario.equals("lowlimit")) {
+            // the brake the owner proposed: nothing is filtered (so no finished at all),
+            // growth is held by a torrent-wide rate limit instead. rateKiB is that limit.
+            lowlimit(w, h, pieces, rateKiB, dwellMs);
+            finish(dir);
+            return;
+        }
         if (scenario.equals("slide")) {
             // ceiling 0: only the playback window is wanted. steps = rest at 0 ("false"),
             // control = rest at normal priority, interested all the time
@@ -299,6 +306,37 @@ public class CeilingTest {
             cycle, tAdd - tDrop, tGo - tDrop, rel(ev[2], tDrop), rel(ev[3], tDrop), w.peers);
     }
 
+    // lowlimit: window at Top, everything else at Low (wanted, so never finished), and
+    // the torrent's own download limit set to limitBps. Answers two things: does the
+    // torrent stay out of finished, and do the seeds keep us unchoked while we ask for
+    // almost nothing and give nothing back.
+    static void lowlimit(Watch w, torrent_handle h, int pieces, int limitBps, long durationMs) throws Exception {
+        byte_vector v = new byte_vector();
+        for (int i = 0; i < pieces; i++) v.add(Byte.valueOf((byte) (i < 8 ? 7 : 1)));
+        h.prioritize_pieces_ex(v);
+        h.set_download_limit(limitBps);
+        long t0 = now(), unchokedMs = 0, lastTick = now();
+        int chokeFlips = 0, finishedTicks = 0;
+        boolean wasUnchoked = false;
+        long b0 = -1;
+        while (now() - t0 < durationMs) {
+            w.tick();
+            long t = now();
+            if (b0 < 0 && w.bytes > 0) b0 = w.bytes;
+            if (w.unchokedByAny) unchokedMs += t - lastTick;
+            if (w.unchokedByAny != wasUnchoked) { chokeFlips++; wasUnchoked = w.unchokedByAny; }
+            if (w.state.equals("finished")) finishedTicks++;
+            lastTick = t;
+            Thread.sleep(50);
+        }
+        int finishedEntries = 0;
+        for (long[] e : w.stateEvents) if (e[1] == torrent_status.state_t.finished.swigValue()) finishedEntries++;
+        System.out.printf("LOWLIMIT limit_Bps=%d duration_ms=%d bytes_KiB=%d have=%d finished_entries=%d finished_ticks=%d "
+                + "unchoked_ms=%d choke_flips=%d peers=%d drops=%d state=%s%n",
+            limitBps, durationMs, (w.bytes - Math.max(b0, 0)) / 1024, w.have, finishedEntries, finishedTicks,
+            unchokedMs, chokeFlips, w.peers, w.drops, w.state);
+    }
+
     // slide: a playback clock at bitrateKiB consumes one piece at a time; the
     // window is the next windowPieces pieces. Each time playback advances, the
     // piece entering the window becomes wanted (deadline). With the ceiling at 0
@@ -359,8 +397,12 @@ public class CeilingTest {
         Collections.sort(latency);
         String lat = latency.isEmpty() ? "n/a" : String.format("min=%d med=%d p90=%d max=%d n=%d",
             latency.get(0), latency.get(latency.size() / 2), latency.get(latency.size() * 9 / 10), latency.get(latency.size() - 1), latency.size());
-        System.out.printf("SLIDE mode=%s played_pieces=%d rebuffers=%d stall_total_ms=%d wanted_to_have_ms[%s] finished_ticks=%d interest_flaps=%d window_prio0_violations=%d drops=%d%n",
-            control ? "no-ceiling" : "ceiling-0", pos, rebuffers, stallTotal, lat, finishedTicks, flaps, windowViolations, w.drops);
+        // what costs is the ENTRY into finished (that is where seeds are dropped and the
+        // fast-reconnect credit is spent), not the time spent there
+        int finishedEntries = 0;
+        for (long[] e : w.stateEvents) if (e[1] == torrent_status.state_t.finished.swigValue()) finishedEntries++;
+        System.out.printf("SLIDE mode=%s played_pieces=%d rebuffers=%d stall_total_ms=%d wanted_to_have_ms[%s] finished_ticks=%d finished_entries=%d interest_flaps=%d window_prio0_violations=%d drops=%d%n",
+            control ? "no-ceiling" : "ceiling-0", pos, rebuffers, stallTotal, lat, finishedTicks, finishedEntries, flaps, windowViolations, w.drops);
     }
 
     // ---------------------------------------------------------------- watching
