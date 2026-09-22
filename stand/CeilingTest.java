@@ -131,6 +131,11 @@ public class CeilingTest {
             finish(dir);
             return;
         }
+        if (scenario.equals("prios")) {
+            prios(w, h, pieces);
+            finish(dir);
+            return;
+        }
         if (scenario.equals("deadlines")) {
             deadlines(w, h, pieces);
             finish(dir);
@@ -346,6 +351,47 @@ public class CeilingTest {
         System.out.printf("UNSTICK cycle=%d new_peer_added_after_drop_ms=%d raise_after_drop_ms=%d first_byte_after_drop_ms=%s "
                 + "rate_recovered_after_drop_ms=%s peers=%d%n",
             cycle, tAdd - tDrop, tGo - tDrop, rel(ev[2], tDrop), rel(ev[3], tDrop), w.peers);
+    }
+
+    // prios: what one prioritize_pieces_ex costs for 100 / 1000 / 4000 pairs. Like
+    // set_piece_deadline this is an async call, so the work is measured through a sync
+    // call that queues behind it. The written value alternates on every repetition:
+    // set_piece_priority returns early when the value is unchanged, and writing the same
+    // priority twice would measure nothing.
+    static void prios(Watch w, torrent_handle h, int pieces) throws Exception {
+        w.until(() -> w.peers > 0, 60_000);
+        int[] sizes = {100, 1000, 4000};
+        for (int k : sizes) {
+            if (k > pieces) continue;
+            long[] drain = new long[20], issue = new long[20];
+            for (int r = 0; r < drain.length; r++) {
+                byte val = (byte) (r % 2 == 0 ? 1 : 4);   // alternate, see above
+                int_byte_pair_vector pairs = new int_byte_pair_vector();
+                for (int i = 0; i < k; i++) pairs.add(new int_byte_pair(pieces - 1 - i, val));
+                long n0 = System.nanoTime();
+                h.prioritize_pieces_ex(pairs);
+                long n1 = System.nanoTime();
+                h.status();                       // queues behind the write
+                long n2 = System.nanoTime();
+                issue[r] = (n1 - n0) / 1000;
+                drain[r] = (n2 - n0) / 1000;
+                // keep the download running between repetitions: an idle network thread
+                // would make the drain a best case, not the number we need
+                for (int t = 0; t < 5; t++) { w.tick(); Thread.sleep(10); }
+            }
+            java.util.Arrays.sort(drain);
+            java.util.Arrays.sort(issue);
+            System.out.printf("PRIOS pairs=%d issue_med_us=%d drain_med_us=%d drain_p90_us=%d drain_max_us=%d "
+                    + "per_pair_ns=%d peers=%d rate_KiBs=%.0f%n",
+                k, issue[issue.length / 2], drain[drain.length / 2], drain[(int) (drain.length * 0.9)],
+                drain[drain.length - 1], drain[drain.length / 2] * 1000 / k, w.peers, w.rateOver(2000) / 1024);
+        }
+        // the full-vector overload, for comparison: it rewrites every piece
+        byte_vector all = prios(pieces, pieces);
+        long n0 = System.nanoTime();
+        h.prioritize_pieces_ex(all);
+        h.status();
+        System.out.printf("PRIOS full_vector pieces=%d drain_us=%d%n", pieces, (System.nanoTime() - n0) / 1000);
     }
 
     // deadlines: set_piece_deadline is an async call, so timing it from here measures the
