@@ -42,6 +42,7 @@ public class CeilingTest {
     static final long T0 = System.nanoTime();
     static final boolean DEBUG = System.getenv("CEILING_DEBUG") != null;
     static final boolean SEEDLOG = System.getenv("CEILING_SEEDLOG") != null;
+    static final boolean RECANCEL = System.getenv("CEILING_RECANCEL") != null;
     static long now() { return (System.nanoTime() - T0) / 1_000_000; }
 
     public static void main(String[] a) throws Exception {
@@ -130,6 +131,11 @@ public class CeilingTest {
             finish(dir);
             return;
         }
+        if (scenario.equals("deadlines")) {
+            deadlines(w, h, pieces);
+            finish(dir);
+            return;
+        }
         if (scenario.equals("tail")) {
             // what is already committed when the brake comes down: outstanding requests.
             // Warm up at full speed, snapshot each peer's queue, cap to 1 byte/s, watch the
@@ -166,6 +172,10 @@ public class CeilingTest {
         if (scenario.equals("slide")) {
             // ceiling 0: only the playback window is wanted. steps = rest at 0 ("false"),
             // control = rest at normal priority, interested all the time
+            // CEILING_REST_PRIO: what everything outside the window stands at (0 = zeros,
+            // 1 = Low, 4 = Default). CEILING_CAP_KIBS: the torrent's own rate cap.
+            if (System.getenv("CEILING_CAP_KIBS") != null)
+                h.set_download_limit(Integer.parseInt(System.getenv("CEILING_CAP_KIBS")) * 1024);
             slide(w, h, pieces, control, 1024, 8, dwellMs);
             finish(dir);
             return;
@@ -338,6 +348,45 @@ public class CeilingTest {
             cycle, tAdd - tDrop, tGo - tDrop, rel(ev[2], tDrop), rel(ev[3], tDrop), w.peers);
     }
 
+    // deadlines: set_piece_deadline is an async call, so timing it from here measures the
+    // enqueue, not the work. Two quantities are measured separately: what the caller pays to
+    // issue K deadlines, and what a standing list of K costs — the latter through the latency
+    // of a sync call (status()), which queues behind the network thread's own work.
+    static void deadlines(Watch w, torrent_handle h, int pieces) throws Exception {
+        w.until(() -> w.bytes > 0, 60_000);
+        int[] sizes = {0, 50, 100, 200};
+        for (int k : sizes) {
+            long nIssue = System.nanoTime();
+            for (int i = 0; i < k; i++) h.set_piece_deadline(pieces - 1 - i * 3, 1000 + i * 10);
+            long issueUs = (System.nanoTime() - nIssue) / 1000;
+            long nDrain = System.nanoTime();
+            h.status();                        // queues behind the K insertions
+            long drainUs = (System.nanoTime() - nDrain) / 1000;
+            // a standing list costs on every tick; a sync call queues behind that work
+            long[] lat = new long[200];
+            for (int i = 0; i < lat.length; i++) {
+                w.tick();                      // keep the download alive and the rate honest
+                long t = System.nanoTime();
+                h.status();
+                lat[i] = (System.nanoTime() - t) / 1000;
+                Thread.sleep(10);
+            }
+            java.util.Arrays.sort(lat);
+            long nOne = System.nanoTime();
+            h.set_piece_deadline(pieces - 2 - k * 3, 5000);
+            h.status();
+            long oneUs = (System.nanoTime() - nOne) / 1000;
+            System.out.printf("DEADLINES standing=%d issue_%d_calls_us=%d per_call_us=%d drain_us=%d "
+                    + "status_med_us=%d status_p90_us=%d status_max_us=%d one_more_us=%d rate_KiBs=%.0f peers=%d%n",
+                k, k, issueUs, k == 0 ? 0 : issueUs / k, drainUs,
+                lat[lat.length / 2], lat[(int) (lat.length * 0.9)], lat[lat.length - 1],
+                oneUs, w.rateOver(2000) / 1024, w.peers);
+            for (int i = 0; i < k; i++) h.reset_piece_deadline(pieces - 1 - i * 3);
+            h.reset_piece_deadline(pieces - 2 - k * 3);
+            h.status();
+        }
+    }
+
     static void tail(Watch w, torrent_handle h, int pieces, long warmMs) throws Exception {
         h.prioritize_pieces_ex(prios(pieces, pieces));
         long t0 = now();
@@ -486,7 +535,9 @@ public class CeilingTest {
     static void slide(Watch w, torrent_handle h, int pieces, boolean control, int bitrateKiB, int windowPieces, long durationMs) throws Exception {
         long msPerPiece = (long) PIECE * 1000 / (bitrateKiB * 1024L);
         byte[] prio = new byte[pieces];
-        for (int i = 0; i < pieces; i++) prio[i] = (byte) (control ? 4 : 0);
+        byte rest = System.getenv("CEILING_REST_PRIO") != null
+            ? Byte.parseByte(System.getenv("CEILING_REST_PRIO")) : (byte) (control ? 4 : 0);
+        for (int i = 0; i < pieces; i++) prio[i] = rest;
         for (int i = 0; i < windowPieces; i++) prio[i] = 7;
         byte_vector bv = new byte_vector();
         for (byte b : prio) bv.add(Byte.valueOf(b));
@@ -500,8 +551,9 @@ public class CeilingTest {
 
         long tStart = now();
         long startup = w.until(() -> h.have_piece(0), 120_000);
-        System.out.printf("SLIDE start mode=%s startup_ms=%s ms_per_piece=%d window=%d%n",
-            control ? "no-ceiling" : "ceiling-0", rel(startup, tStart), msPerPiece, windowPieces);
+        System.out.printf("SLIDE start rest_prio=%d cap_KiBs=%s startup_ms=%s ms_per_piece=%d window=%d%n",
+            rest, System.getenv("CEILING_CAP_KIBS") == null ? "none" : System.getenv("CEILING_CAP_KIBS"),
+            rel(startup, tStart), msPerPiece, windowPieces);
         int pos = 0, rebuffers = 0, finishedTicks = 0, flaps = 0, windowViolations = 0;
         long stallStart = -1, stallTotal = 0, next = now() + msPerPiece, lastPrioCheck = 0;
         boolean wasInteresting = true;
@@ -522,7 +574,16 @@ public class CeilingTest {
                     next = t + msPerPiece;
                     int np = pos + windowPieces - 1;
                     wanted[np] = t;
-                    h.set_piece_deadline(np, (int) (msPerPiece * (windowPieces - 1)));
+                    if (RECANCEL) {
+                        // deadlines only cancel other peers' outstanding requests when the
+                        // time-critical list goes from empty to non-empty (torrent.cpp:5337).
+                        // Clearing and re-setting forces that cancel on every window advance.
+                        h.clear_piece_deadlines();
+                        for (int j = pos; j < pos + windowPieces; j++)
+                            h.set_piece_deadline(j, (int) (msPerPiece * (j - pos)));
+                    } else {
+                        h.set_piece_deadline(np, (int) (msPerPiece * (windowPieces - 1)));
+                    }
                 } else if (stallStart < 0) {
                     stallStart = t;
                     rebuffers++;
