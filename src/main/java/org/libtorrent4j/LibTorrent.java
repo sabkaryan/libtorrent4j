@@ -8,6 +8,7 @@
 package org.libtorrent4j;
 
 import org.libtorrent4j.swig.libtorrent;
+import org.libtorrent4j.swig.libtorrent_ext;
 import org.libtorrent4j.swig.stats_metric;
 import org.libtorrent4j.swig.stats_metric_vector;
 
@@ -33,17 +34,39 @@ public final class LibTorrent {
     }
 
     /**
-     * The git revision of libtorrent the native library is using.
+     * The git revision of libtorrent this jar was built against (the
+     * revision of the libtorrent submodule at build time).
      * <p>
      * This is not the internal revision libtorrent reports, since
-     * that string is updated from time to time. This library can be
-     * using an up-to-date revision, this string is manually
-     * hardcoded in each version of libtorrent4j.
+     * that string is updated from time to time.
      *
      * @return the git revision
      */
     public static String revision() {
-        return "a01469c8d1f88dd83bed458ffccffab2727b9d2a";
+        return NativeBuildInfo.LIBTORRENT_REVISION;
+    }
+
+    /**
+     * The libtorrent the loaded native library was built from, as
+     * {@code "<libtorrent version> <git revision>"}. Compare with
+     * {@link #expectedNativeBuild()} to detect a native library from another
+     * build. A native library too old to report it throws
+     * {@link UnsatisfiedLinkError}.
+     *
+     * @return the libtorrent version and revision of the native library
+     */
+    public static String nativeBuild() {
+        return libtorrent_ext.nativeBuild();
+    }
+
+    /**
+     * The libtorrent the native library has to be built from for this jar,
+     * as {@code "<libtorrent version> <git revision>"}.
+     *
+     * @return the expected result of {@link #nativeBuild()}
+     */
+    public static String expectedNativeBuild() {
+        return NativeBuildInfo.LIBTORRENT_VERSION + " " + NativeBuildInfo.LIBTORRENT_REVISION;
     }
 
     /**
@@ -71,7 +94,7 @@ public final class LibTorrent {
      * @return libtorrent4j version.
      */
     public static String libtorrent4jVersion() {
-        return "2.1.0-38";
+        return NativeBuildInfo.LIBTORRENT4J_VERSION;
     }
 
     /**

@@ -34,6 +34,19 @@ public final class libtorrent_ext {
 
     private static native int forget_piece(long handlePtr, int piece);
 
+    /**
+     * The libtorrent the native library was built from, as
+     * {@code "<libtorrent version> <git revision of swig/deps/libtorrent>"}
+     * ({@code "unknown"} instead of the revision if the build did not pass it).
+     * A native library from before this entry point was added throws
+     * {@link UnsatisfiedLinkError}.
+     */
+    public static String nativeBuild() {
+        return native_build();
+    }
+
+    private static native String native_build();
+
     // ---- test-only controls, present only in builds with TORRENT_USE_ASSERTS
     //      (the product build does not export them; calling them there throws
     //      UnsatisfiedLinkError). They exist so an assert-enabled build can

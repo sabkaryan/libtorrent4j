@@ -8,6 +8,7 @@
 #include <jni.h>
 
 #include "libtorrent/torrent_handle.hpp"
+#include "libtorrent/version.hpp"
 #include "libtorrent/aux_/torrent.hpp"
 #include "libtorrent/aux_/session_impl.hpp"
 #include "libtorrent/aux_/session_call.hpp"
@@ -21,7 +22,21 @@ libtorrent::torrent_handle const* handle_of(jlong ptr)
 
 } // anonymous namespace
 
+// the git revision of swig/deps/libtorrent this library is built from, passed
+// in by the build (swig/Jamfile, LT4J_LIBTORRENT_REVISION)
+#ifndef LT4J_LIBTORRENT_REVISION
+#define LT4J_LIBTORRENT_REVISION "unknown"
+#endif
+
 extern "C" {
+
+// "<libtorrent version> <revision>": what the jar compares with the libtorrent
+// it was built against (LibTorrent.expectedNativeBuild())
+JNIEXPORT jstring JNICALL
+Java_org_libtorrent4j_swig_libtorrent_1ext_native_1build(JNIEnv* env, jclass)
+{
+    return env->NewStringUTF(LIBTORRENT_VERSION " " LT4J_LIBTORRENT_REVISION);
+}
 
 JNIEXPORT jint JNICALL
 Java_org_libtorrent4j_swig_libtorrent_1ext_forget_1piece(
