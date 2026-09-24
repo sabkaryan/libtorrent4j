@@ -543,6 +543,21 @@ public class alert {
     return (cPtr == 0) ? null : new tracker_list_alert(cPtr, false);
   }
 
+  public static file_priorities_alert cast_to_file_priorities_alert(alert a) {
+    long cPtr = libtorrent_jni.alert_cast_to_file_priorities_alert(alert.getCPtr(a), a);
+    return (cPtr == 0) ? null : new file_priorities_alert(cPtr, false);
+  }
+
+  public static file_status_alert cast_to_file_status_alert(alert a) {
+    long cPtr = libtorrent_jni.alert_cast_to_file_status_alert(alert.getCPtr(a), a);
+    return (cPtr == 0) ? null : new file_status_alert(cPtr, false);
+  }
+
+  public static ip_ban_alert cast_to_ip_ban_alert(alert a) {
+    long cPtr = libtorrent_jni.alert_cast_to_ip_ban_alert(alert.getCPtr(a), a);
+    return (cPtr == 0) ? null : new ip_ban_alert(cPtr, false);
+  }
+
   public final static alert_category_t error_notification = new alert_category_t(libtorrent_jni.alert_error_notification_get(), false);
   public final static alert_category_t peer_notification = new alert_category_t(libtorrent_jni.alert_peer_notification_get(), false);
   public final static alert_category_t port_mapping_notification = new alert_category_t(libtorrent_jni.alert_port_mapping_notification_get(), false);

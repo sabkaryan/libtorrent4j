@@ -434,6 +434,22 @@ public class torrent_status {
     return libtorrent_jni.torrent_status_connections_limit_get(swigCPtr, this);
   }
 
+  public void setUpload_limit(int value) {
+    libtorrent_jni.torrent_status_upload_limit_set(swigCPtr, this, value);
+  }
+
+  public int getUpload_limit() {
+    return libtorrent_jni.torrent_status_upload_limit_get(swigCPtr, this);
+  }
+
+  public void setDownload_limit(int value) {
+    libtorrent_jni.torrent_status_download_limit_set(swigCPtr, this, value);
+  }
+
+  public int getDownload_limit() {
+    return libtorrent_jni.torrent_status_download_limit_get(swigCPtr, this);
+  }
+
   public void setUp_bandwidth_queue(int value) {
     libtorrent_jni.torrent_status_up_bandwidth_queue_set(swigCPtr, this, value);
   }
@@ -555,6 +571,15 @@ public class torrent_status {
   public torrent_flags_t getFlags() {
     long cPtr = libtorrent_jni.torrent_status_flags_get(swigCPtr, this);
     return (cPtr == 0) ? null : new torrent_flags_t(cPtr, false);
+  }
+
+  public void setRenamed_files(renamed_files value) {
+    libtorrent_jni.torrent_status_renamed_files_set(swigCPtr, this, renamed_files.getCPtr(value), value);
+  }
+
+  public renamed_files getRenamed_files() {
+    long cPtr = libtorrent_jni.torrent_status_renamed_files_get(swigCPtr, this);
+    return (cPtr == 0) ? null : new renamed_files(cPtr, false);
   }
 
   public torrent_info torrent_file_ptr() {

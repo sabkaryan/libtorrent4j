@@ -127,6 +127,11 @@ public class libtorrent {
     return (cPtr == 0) ? null : new torrent_flags_t(cPtr, false);
   }
 
+  public static torrent_flags_t getDisable_v1_hashes() {
+    long cPtr = libtorrent_jni.disable_v1_hashes_get();
+    return (cPtr == 0) ? null : new torrent_flags_t(cPtr, false);
+  }
+
   public static torrent_flags_t getAll() {
     long cPtr = libtorrent_jni.all_get();
     return (cPtr == 0) ? null : new torrent_flags_t(cPtr, false);

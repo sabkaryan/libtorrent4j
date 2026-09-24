@@ -24,7 +24,9 @@ public final class libtorrent_ext {
      * disconnecting peers or re-checking. Synchronous; safe from any thread.
      *
      * @return 0 forgotten, 1 not had, 2 no piece picker (seed), 3 piece is
-     * being downloaded, 4 bad index / no metadata, 5 invalid handle
+     * being downloaded or not all of its blocks are on disk yet (try again
+     * later; release the piece's bytes on disk only after 0), 4 bad index /
+     * no metadata, 5 invalid handle
      */
     public static int forgetPiece(torrent_handle h, int piece) {
         return forget_piece(torrent_handle.getCPtr(h), piece);

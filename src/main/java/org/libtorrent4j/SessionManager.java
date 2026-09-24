@@ -1158,13 +1158,13 @@ public class SessionManager {
                 alert_ptr_vector v = new alert_ptr_vector();
 
                 while (session != null) {
-                    alert ptr = session.wait_for_alert_ms(ALERTS_LOOP_WAIT_MILLIS);
+                    boolean hasAlerts = session.wait_for_alert_ms(ALERTS_LOOP_WAIT_MILLIS);
 
                     if (session == null) {
                         return;
                     }
 
-                    if (ptr != null) {
+                    if (hasAlerts) {
                         session.pop_alerts(v);
                         long size = v.size();
                         for (int i = 0; i < size; i++) {

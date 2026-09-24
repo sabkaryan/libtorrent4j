@@ -114,6 +114,9 @@ struct alert_category_tag;
     CAST_ALERT_METHOD(piece_info_alert)
     CAST_ALERT_METHOD(piece_availability_alert)
     CAST_ALERT_METHOD(tracker_list_alert)
+    CAST_ALERT_METHOD(file_priorities_alert)
+    CAST_ALERT_METHOD(file_status_alert)
+    CAST_ALERT_METHOD(ip_ban_alert)
 
 }
 

@@ -2,6 +2,8 @@
 %ignore libtorrent::read_piece_alert::buffer;
 %ignore libtorrent::dht_pkt_alert::pkt_buf;
 %ignore libtorrent::session_stats_alert::counters;
+%ignore libtorrent::file_priorities_alert::priorities;
+%ignore libtorrent::file_status_alert::state;
 %ignore libtorrent::dht_lookup::type;
 %ignore libtorrent::dht_sample_infohashes_alert::endpoint;
 %ignore libtorrent::dht_sample_infohashes_alert::interval;

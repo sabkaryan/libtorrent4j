@@ -110,6 +110,9 @@ public enum AlertType {
     PIECE_INFO(piece_info_alert.alert_type),
     PIECE_AVAILABILITY(piece_availability_alert.alert_type),
     TRACKER_LIST(tracker_list_alert.alert_type),
+    FILE_PRIORITIES(file_priorities_alert.alert_type),
+    FILE_STATUS(file_status_alert.alert_type),
+    IP_BAN(ip_ban_alert.alert_type),
     UNKNOWN(-1);
 
     private static final AlertType[] TABLE = buildTable();
@@ -243,6 +246,9 @@ public enum AlertType {
         arr[102] = PIECE_INFO;
         arr[103] = PIECE_AVAILABILITY;
         arr[104] = TRACKER_LIST;
+        arr[105] = FILE_PRIORITIES;
+        arr[106] = FILE_STATUS;
+        arr[107] = IP_BAN;
 
         return arr;
     }

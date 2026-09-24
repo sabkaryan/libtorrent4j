@@ -144,6 +144,10 @@ public class torrent_info {
     return libtorrent_jni.torrent_info_piece_size(swigCPtr, this, index);
   }
 
+  public int piece_size_for_req(int index) {
+    return libtorrent_jni.torrent_info_piece_size_for_req(swigCPtr, this, index);
+  }
+
   public sha1_hash hash_for_piece(int index) {
     return new sha1_hash(libtorrent_jni.torrent_info_hash_for_piece(swigCPtr, this, index), true);
   }
@@ -154,10 +158,6 @@ public class torrent_info {
 
   public String name() {
     return libtorrent_jni.torrent_info_name(swigCPtr, this);
-  }
-
-  public bdecode_node info(String key) {
-    return new bdecode_node(libtorrent_jni.torrent_info_info(swigCPtr, this, key), true);
   }
 
   public void internal_set_collections(string_vector c) {

@@ -62,7 +62,7 @@ namespace libtorrent {
         $self->dht_direct_request(ep, e, lt::client_data_t{(void*)userdata});
     }
 
-    alert* wait_for_alert_ms(std::int64_t max_wait)
+    bool wait_for_alert_ms(std::int64_t max_wait)
     {
         return $self->wait_for_alert(libtorrent::milliseconds(max_wait));
     }

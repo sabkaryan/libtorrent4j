@@ -64,6 +64,10 @@ public class torrent_handle {
     return libtorrent_jni.torrent_handle_have_piece(swigCPtr, this, piece);
   }
 
+  public int forget_piece(int piece) {
+    return libtorrent_jni.torrent_handle_forget_piece(swigCPtr, this, piece);
+  }
+
   public void post_peer_info() {
     libtorrent_jni.torrent_handle_post_peer_info(swigCPtr, this);
   }
@@ -134,6 +138,10 @@ public class torrent_handle {
 
   public void post_file_progress(file_progress_flags_t flags) {
     libtorrent_jni.torrent_handle_post_file_progress(swigCPtr, this, file_progress_flags_t.getCPtr(flags), flags);
+  }
+
+  public void post_file_status() {
+    libtorrent_jni.torrent_handle_post_file_status(swigCPtr, this);
   }
 
   public void clear_error() {
@@ -252,6 +260,10 @@ public class torrent_handle {
     libtorrent_jni.torrent_handle_set_ssl_certificate__SWIG_1(swigCPtr, this, certificate, private_key, dh_params);
   }
 
+  public renamed_files get_renamed_files() {
+    return new renamed_files(libtorrent_jni.torrent_handle_get_renamed_files(swigCPtr, this), true);
+  }
+
   public sha256_hash_vector_vector piece_layers() {
     return new sha256_hash_vector_vector(libtorrent_jni.torrent_handle_piece_layers(swigCPtr, this), true);
   }
@@ -262,6 +274,10 @@ public class torrent_handle {
 
   public void piece_availability(int_vector avail) {
     libtorrent_jni.torrent_handle_piece_availability(swigCPtr, this, int_vector.getCPtr(avail), avail);
+  }
+
+  public void post_file_priorities() {
+    libtorrent_jni.torrent_handle_post_file_priorities(swigCPtr, this);
   }
 
   public void force_reannounce(int seconds, int idx, reannounce_flags_t arg2) {
@@ -478,6 +494,7 @@ public class torrent_handle {
   public final static status_flags_t query_torrent_file = new status_flags_t(libtorrent_jni.torrent_handle_query_torrent_file_get(), false);
   public final static status_flags_t query_name = new status_flags_t(libtorrent_jni.torrent_handle_query_name_get(), false);
   public final static status_flags_t query_save_path = new status_flags_t(libtorrent_jni.torrent_handle_query_save_path_get(), false);
+  public final static status_flags_t query_renamed_files = new status_flags_t(libtorrent_jni.torrent_handle_query_renamed_files_get(), false);
   public final static deadline_flags_t alert_when_available = new deadline_flags_t(libtorrent_jni.torrent_handle_alert_when_available_get(), false);
   public final static file_progress_flags_t piece_granularity = new file_progress_flags_t(libtorrent_jni.torrent_handle_piece_granularity_get(), false);
   public final static pause_flags_t graceful_pause = new pause_flags_t(libtorrent_jni.torrent_handle_graceful_pause_get(), false);
@@ -490,4 +507,5 @@ public class torrent_handle {
   public final static resume_data_flags_t if_metadata_changed = new resume_data_flags_t(libtorrent_jni.torrent_handle_if_metadata_changed_get(), false);
   public final static resume_data_flags_t only_if_modified = new resume_data_flags_t(libtorrent_jni.torrent_handle_only_if_modified_get(), false);
   public final static reannounce_flags_t ignore_min_interval = new reannounce_flags_t(libtorrent_jni.torrent_handle_ignore_min_interval_get(), false);
+  public final static reannounce_flags_t high_priority = new reannounce_flags_t(libtorrent_jni.torrent_handle_high_priority_get(), false);
 }

@@ -296,17 +296,6 @@ public final class TorrentInfo {
         return ti.name();
     }
 
-    /**
-     * This function looks up keys from the info-dictionary of the loaded
-     * torrent file. It can be used to access extension values put in the
-     * .torrent file. If the specified key cannot be found, it returns NULL.
-     *
-     * @param key
-     *
-     */
-    public bdecode_node info(String key) {
-        return ti.info(key);
-    }
 
     public static TorrentInfo bdecode(byte[] data) {
         return new TorrentInfo(bdecode0(data));

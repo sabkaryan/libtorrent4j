@@ -72,8 +72,8 @@ public class renamed_files {
     libtorrent_jni.renamed_files_import_filenames_ex(swigCPtr, this, file_storage.getCPtr(fs), fs, int_string_map.getCPtr(renamed_files), renamed_files);
   }
 
-  public int_string_map export_filenames_ex() {
-    return new int_string_map(libtorrent_jni.renamed_files_export_filenames_ex(swigCPtr, this), true);
+  public int_string_map export_filenames_ex(file_storage fs) {
+    return new int_string_map(libtorrent_jni.renamed_files_export_filenames_ex(swigCPtr, this, file_storage.getCPtr(fs), fs), true);
   }
 
   public renamed_files() {

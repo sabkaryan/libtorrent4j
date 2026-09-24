@@ -92,12 +92,12 @@ public class filenames {
     return libtorrent_jni.filenames_num_files(swigCPtr, this);
   }
 
-  public int num_pieces() {
-    return libtorrent_jni.filenames_num_pieces(swigCPtr, this);
-  }
-
   public int end_piece() {
     return libtorrent_jni.filenames_end_piece(swigCPtr, this);
+  }
+
+  public int num_pieces() {
+    return libtorrent_jni.filenames_num_pieces(swigCPtr, this);
   }
 
   public file_slice_vector map_block(int piece, long offset, long size) {
@@ -114,6 +114,10 @@ public class filenames {
 
   public int piece_length() {
     return libtorrent_jni.filenames_piece_length(swigCPtr, this);
+  }
+
+  public String file_name_ex(int index) {
+    return libtorrent_jni.filenames_file_name_ex(swigCPtr, this, index);
   }
 
 }
