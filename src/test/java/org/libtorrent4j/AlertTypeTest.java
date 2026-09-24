@@ -39,6 +39,18 @@ public class AlertTypeTest {
         }
     }
 
+    // and must map to the AlertType of that very index, not a neighbour's; only
+    // the indices of alert types libtorrent no longer has map to UNKNOWN
+    @Test
+    public void testEveryMappedAlertTypeHasItsOwnIndex() {
+        for (int i = 0; i < Alerts.NUM_ALERT_TYPES; i++) {
+            AlertType t = AlertType.fromSwig(i);
+            if (t != AlertType.UNKNOWN) {
+                assertEquals("AlertType.fromSwig(" + i + ") is " + t, i, t.swig());
+            }
+        }
+    }
+
     // and must have a cast entry, otherwise Alerts.cast() throws a NullPointerException
     @Test
     public void testEveryNativeAlertTypeCanBeCast() throws Exception {
