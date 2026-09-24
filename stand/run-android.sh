@@ -30,7 +30,7 @@ JAR="$ROOT/build/libs/libtorrent4j-$VERSION.jar"
 
 OUT="$HERE/build"
 rm -rf "$OUT" && mkdir -p "$OUT/classes"
-javac -source 8 -target 8 -cp "$JAR" -d "$OUT/classes" "$HERE/StandTest.java"
+javac -encoding UTF-8 -source 8 -target 8 -cp "$JAR" -d "$OUT/classes" "$HERE/StandTest.java"
 "$D8" --min-api 26 --output "$OUT/stand.zip" "$OUT"/classes/StandTest*.class "$JAR"
 
 T=/data/local/tmp/lt4j-stand

@@ -198,15 +198,6 @@ public class StandTest {
         int port = seed.listen_port();
         System.out.println("seed: seeding on 127.0.0.1:" + port);
 
-        // connect BEFORE forgetting: a finished torrent drops redundant seed
-        // connections, and after forget_piece it has to come back on its own
-        error_code ec3 = new error_code();
-        h.connect_peer(new tcp_endpoint(address.from_string("127.0.0.1", ec3), port));
-        Thread.sleep(1500);
-        torrent_status stc = h.status();
-        System.out.println("connected: num_peers=" + stc.getNum_peers() + " num_seeds=" + stc.getNum_seeds()
-            + " state=" + stc.getState());
-
         // corrupt piece 2 on disk so the re-download is visible in the bytes too
         try (RandomAccessFile f = new RandomAccessFile(new File(data, "a.bin"), "rw")) {
             f.seek(2L * PIECE);
@@ -214,14 +205,35 @@ public class StandTest {
         }
         int rc = libtorrent_ext.forgetPiece(h, 2);
         System.out.println("forgetPiece(2) rc=" + rc);
+
+        // connect AFTER forgetting. While the torrent is finished, a seed is a
+        // redundant connection that close_redundant_connections drops at once,
+        // and with no other peer source (no tracker, DHT or LSD here) the
+        // torrent would not reconnect before min_reconnect_time (60 s)
+        error_code ec3 = new error_code();
+        h.connect_peer(new tcp_endpoint(address.from_string("127.0.0.1", ec3), port));
+        Thread.sleep(1500);
+        torrent_status stc = h.status();
+        System.out.println("connected: num_peers=" + stc.getNum_peers() + " num_seeds=" + stc.getNum_seeds()
+            + " state=" + stc.getState());
         long end = System.currentTimeMillis() + 30000;
         while (System.currentTimeMillis() < end && !h.have_piece(2)) Thread.sleep(200);
+        // have_piece() says the piece passed its hash check. With a write-back
+        // disk cache its bytes reach the file a little later, so wait for
+        // them (bounded) instead of reading the file too early
+        long passedAt = System.currentTimeMillis();
+        boolean same;
+        while (true) {
+            byte[] back = Files.readAllBytes(new File(data, "a.bin").toPath());
+            same = Arrays.equals(back, fa);
+            if (same || System.currentTimeMillis() > passedAt + 5000) break;
+            Thread.sleep(20);
+        }
+        System.out.println("a.bin byte-equal to reference: " + same
+            + " (" + (System.currentTimeMillis() - passedAt) + " ms after have(2))");
         torrent_status st3 = h.status();
         System.out.println("redownload: have(2)=" + h.have_piece(2) + " state=" + st3.getState()
             + " num_pieces=" + st3.getNum_pieces() + " payload_download=" + st3.getTotal_payload_download());
-        byte[] back = Files.readAllBytes(new File(data, "a.bin").toPath());
-        boolean same = Arrays.equals(back, fa);
-        System.out.println("a.bin byte-equal to reference: " + same);
         boolean ok = check("rc==0", rc == 0)
             & check("have(2) again", h.have_piece(2))
             & check("state finished again", st3.getState().swigValue() == torrent_status.state_t.finished.swigValue())
