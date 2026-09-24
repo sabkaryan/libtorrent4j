@@ -1,5 +1,6 @@
 %ignore libtorrent::torrent_status::pieces;
 %ignore libtorrent::torrent_status::verified_pieces;
+%ignore libtorrent::torrent_status::flushed_pieces;
 %ignore libtorrent::torrent_status::torrent_status(torrent_status&&);
 %ignore libtorrent::torrent_status::_dummy_string_;
 %ignore libtorrent::torrent_status::torrent_file;
@@ -85,6 +86,12 @@ namespace libtorrent {
     bitfield get_verified_pieces()
     {
         auto* v = &$self->verified_pieces;
+        return *reinterpret_cast<libtorrent::bitfield*>(v);
+    }
+
+    bitfield get_flushed_pieces()
+    {
+        auto* v = &$self->flushed_pieces;
         return *reinterpret_cast<libtorrent::bitfield*>(v);
     }
 }

@@ -158,11 +158,35 @@ public final class TorrentStatus implements Cloneable {
      * A bitmask that represents which pieces we have (set to true) and the
      * pieces we don't have. It's a pointer and may be set to 0 if the
      * torrent isn't downloading or seeding.
+     * <p>
+     * Having a piece means it passed its hash check, not that its bytes are in
+     * the files: since libtorrent 2.1 the default disk I/O writes a piece's
+     * blocks back after hashing them from memory. For the pieces whose bytes
+     * are in the files see {@link #flushedPieces()}.
      *
      * @return the bitfield of pieces
      */
     public PieceIndexBitfield pieces() {
         return new PieceIndexBitfield(ts.get_pieces(), ts);
+    }
+
+    /**
+     * A bitmask of the pieces whose blocks have all been written to the files:
+     * the snapshot of what {@link org.libtorrent4j.alerts.PieceFlushedAlert}
+     * reports as it happens. Every piece in here is also in {@link #pieces()},
+     * but not the other way around. Filled in only when the status is queried
+     * with {@link TorrentHandle#QUERY_FLUSHED_PIECES}.
+     * <p>
+     * The snapshot can only under-report: a piece written after the call is
+     * missing from it, but a piece in it stays written until the torrent drops
+     * the piece (forgetting it, a recheck, a failed v2 block hash check). A
+     * clear bit means "not known to be written", not "not on disk": wait for
+     * {@code PieceFlushedAlert} rather than treat it as final.
+     *
+     * @return the bitfield of pieces written to the files
+     */
+    public PieceIndexBitfield flushedPieces() {
+        return new PieceIndexBitfield(ts.get_flushed_pieces(), ts);
     }
 
     /**

@@ -495,6 +495,7 @@ public class torrent_handle {
   public final static status_flags_t query_name = new status_flags_t(libtorrent_jni.torrent_handle_query_name_get(), false);
   public final static status_flags_t query_save_path = new status_flags_t(libtorrent_jni.torrent_handle_query_save_path_get(), false);
   public final static status_flags_t query_renamed_files = new status_flags_t(libtorrent_jni.torrent_handle_query_renamed_files_get(), false);
+  public final static status_flags_t query_flushed_pieces = new status_flags_t(libtorrent_jni.torrent_handle_query_flushed_pieces_get(), false);
   public final static deadline_flags_t alert_when_available = new deadline_flags_t(libtorrent_jni.torrent_handle_alert_when_available_get(), false);
   public final static file_progress_flags_t piece_granularity = new file_progress_flags_t(libtorrent_jni.torrent_handle_piece_granularity_get(), false);
   public final static pause_flags_t graceful_pause = new pause_flags_t(libtorrent_jni.torrent_handle_graceful_pause_get(), false);

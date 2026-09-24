@@ -4208,6 +4208,10 @@ SWIGINTERN libtorrent::bitfield libtorrent_torrent_status_get_verified_pieces(li
         auto* v = &self->verified_pieces;
         return *reinterpret_cast<libtorrent::bitfield*>(v);
     }
+SWIGINTERN libtorrent::bitfield libtorrent_torrent_status_get_flushed_pieces(libtorrent::torrent_status *self){
+        auto* v = &self->flushed_pieces;
+        return *reinterpret_cast<libtorrent::bitfield*>(v);
+    }
 SWIGINTERN libtorrent::entry &libtorrent_entry_get(libtorrent::entry *self,std::string const &key){
             return self->operator[](key);
         }
@@ -42020,6 +42024,18 @@ SWIGEXPORT jlong JNICALL Java_org_libtorrent4j_swig_libtorrent_1jni_torrent_1han
 }
 
 
+SWIGEXPORT jlong JNICALL Java_org_libtorrent4j_swig_libtorrent_1jni_torrent_1handle_1query_1flushed_1pieces_1get(JNIEnv *jenv, jclass jcls) {
+  jlong jresult = 0 ;
+  libtorrent::flags::bitfield_flag< unsigned int,libtorrent::status_flags_tag > *result = 0 ;
+  
+  (void)jenv;
+  (void)jcls;
+  result = (libtorrent::flags::bitfield_flag< unsigned int,libtorrent::status_flags_tag > *)&libtorrent::torrent_handle::query_flushed_pieces;
+  *(libtorrent::flags::bitfield_flag< unsigned int,libtorrent::status_flags_tag > **)&jresult = result; 
+  return jresult;
+}
+
+
 SWIGEXPORT jlong JNICALL Java_org_libtorrent4j_swig_libtorrent_1jni_torrent_1handle_1status_1_1SWIG_10(JNIEnv *jenv, jclass jcls, jlong jarg1, jobject jarg1_, jlong jarg2, jobject jarg2_) {
   jlong jresult = 0 ;
   libtorrent::torrent_handle *arg1 = (libtorrent::torrent_handle *) 0 ;
@@ -49605,6 +49621,31 @@ SWIGEXPORT jlong JNICALL Java_org_libtorrent4j_swig_libtorrent_1jni_torrent_1sta
   {
     try {
       result = libtorrent_torrent_status_get_verified_pieces(arg1);
+    } catch (std::exception& e) {
+      SWIG_JavaThrowException(jenv, SWIG_JavaRuntimeException, e.what());
+      return 0;
+    } catch (...) {
+      SWIG_JavaThrowException(jenv, SWIG_JavaRuntimeException, "Unknown exception type");
+      return 0;
+    }
+  }
+  *(libtorrent::bitfield **)&jresult = new libtorrent::bitfield(result); 
+  return jresult;
+}
+
+
+SWIGEXPORT jlong JNICALL Java_org_libtorrent4j_swig_libtorrent_1jni_torrent_1status_1get_1flushed_1pieces(JNIEnv *jenv, jclass jcls, jlong jarg1, jobject jarg1_) {
+  jlong jresult = 0 ;
+  libtorrent::torrent_status *arg1 = (libtorrent::torrent_status *) 0 ;
+  libtorrent::bitfield result;
+  
+  (void)jenv;
+  (void)jcls;
+  (void)jarg1_;
+  arg1 = *(libtorrent::torrent_status **)&jarg1; 
+  {
+    try {
+      result = libtorrent_torrent_status_get_flushed_pieces(arg1);
     } catch (std::exception& e) {
       SWIG_JavaThrowException(jenv, SWIG_JavaRuntimeException, e.what());
       return 0;

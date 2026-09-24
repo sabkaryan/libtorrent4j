@@ -175,8 +175,10 @@ public final class TorrentHandle
     }
 
     /**
-     * Returns true if this piece has been completely downloaded, and false
-     * otherwise.
+     * Returns true if this piece has been completely downloaded and passed its
+     * hash check, and false otherwise. Its bytes may not be in the files yet:
+     * see {@link TorrentStatus#flushedPieces()} and
+     * {@link org.libtorrent4j.alerts.PieceFlushedAlert}.
      *
      * @param piece the piece index
      * @return if piece has been completely downloaded
@@ -313,6 +315,12 @@ public final class TorrentHandle
      * includes ``verified_pieces`` (only applies to torrents in *seed mode*).
      */
     public static final status_flags_t QUERY_VERIFIED_PIECES = torrent_handle.query_verified_pieces;
+
+    /**
+     * includes ``flushed_pieces``: the pieces whose blocks have all been
+     * written to the files (see {@link TorrentStatus#flushedPieces()}).
+     */
+    public static final status_flags_t QUERY_FLUSHED_PIECES = torrent_handle.query_flushed_pieces;
 
     /**
      * includes ``torrent_file``, which is all the static information from the .torrent file.

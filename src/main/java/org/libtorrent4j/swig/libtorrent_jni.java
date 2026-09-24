@@ -1533,6 +1533,7 @@ public class libtorrent_jni {
   public final static native long torrent_handle_query_name_get();
   public final static native long torrent_handle_query_save_path_get();
   public final static native long torrent_handle_query_renamed_files_get();
+  public final static native long torrent_handle_query_flushed_pieces_get();
   public final static native long torrent_handle_status__SWIG_0(long jarg1, torrent_handle jarg1_, long jarg2, status_flags_t jarg2_);
   public final static native long torrent_handle_status__SWIG_1(long jarg1, torrent_handle jarg1_);
   public final static native void torrent_handle_post_status__SWIG_0(long jarg1, torrent_handle jarg1_, long jarg2, status_flags_t jarg2_);
@@ -1882,6 +1883,7 @@ public class libtorrent_jni {
   public final static native int torrent_status_get_queue_position(long jarg1, torrent_status jarg1_);
   public final static native long torrent_status_get_pieces(long jarg1, torrent_status jarg1_);
   public final static native long torrent_status_get_verified_pieces(long jarg1, torrent_status jarg1_);
+  public final static native long torrent_status_get_flushed_pieces(long jarg1, torrent_status jarg1_);
   public final static native int counters_num_checking_torrents_get();
   public final static native int counters_num_gauges_counters_get();
   public final static native long new_counters__SWIG_0();
