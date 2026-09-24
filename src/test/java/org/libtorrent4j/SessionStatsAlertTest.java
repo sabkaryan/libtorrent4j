@@ -14,6 +14,7 @@ import org.libtorrent4j.swig.create_torrent;
 import org.libtorrent4j.swig.error_code;
 import org.libtorrent4j.swig.list_files_listener;
 import org.libtorrent4j.swig.set_piece_hashes_listener;
+import org.libtorrent4j.swig.settings_pack;
 
 import java.io.File;
 import java.util.Random;
@@ -64,7 +65,13 @@ public class SessionStatsAlertTest {
     private static SessionParams params(int downloadRateLimit) {
         SettingsPack sp = new SettingsPack();
         sp.listenInterfaces("127.0.0.1:0");
+        // the only connection is the one the test makes: no DHT, no local
+        // service discovery (it would connect the two sessions on its own,
+        // before the download limit applies), no port mapping
         sp.setEnableDht(false);
+        sp.setBoolean(settings_pack.bool_types.enable_lsd.swigValue(), false);
+        sp.setBoolean(settings_pack.bool_types.enable_upnp.swigValue(), false);
+        sp.setBoolean(settings_pack.bool_types.enable_natpmp.swigValue(), false);
         if (downloadRateLimit > 0) sp.downloadRateLimit(downloadRateLimit);
         return new SessionParams(sp);
     }
@@ -137,6 +144,16 @@ public class SessionStatsAlertTest {
             }
             System.out.println("session stats read in the listener: max peers connected " + maxConnected.get()
                     + " (get_peer_info saw up to " + maxPeerInfo + ")");
+            if (maxConnected.get() < 1) {
+                TorrentStatus ss = sh.status();
+                TorrentStatus ds = th.status();
+                System.out.println("DIAG seed state=" + ss.state() + " seeding=" + ss.isSeeding()
+                        + " port=" + seed.swig().listen_port() + " endpoints=" + seed.listenEndpoints()
+                        + " | dl state=" + ds.state()
+                        + " listPeers=" + ds.listPeers() + " connectCandidates=" + ds.connectCandidates()
+                        + " error=" + ds.errorCode().getMessage() + " dlport=" + dl.swig().listen_port()
+                        + " seedErr=" + ss.errorCode().getMessage());
+            }
             assertTrue("peers connected, read in the listener", maxConnected.get() >= 1);
 
             end = System.currentTimeMillis() + 30000;
