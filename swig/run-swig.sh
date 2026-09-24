@@ -1,28 +1,35 @@
 #!/bin/bash
 
-BOOST_ROOT=$DEVELOPMENT_ROOT/boost_1_89_0
+BOOST_ROOT=${BOOST_ROOT:-$DEVELOPMENT_ROOT/boost_1_89_0}
 LIBTORRENT_ROOT=deps/libtorrent
 
+# in-place sed that works with both BSD (macOS) and GNU sed
+function sedi() {
+    sed -i.bak "$@" && rm -f "${@: -1}.bak"
+}
+
 function fixCode() {
-    sed -i '' 's/) &;/)  ;/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
-    sed -i '' 's/) & noexcept;/)   noexcept;/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
-    sed -i '' 's/(time_point32::min)();/time_point32::min();/g' ${LIBTORRENT_ROOT}/include/libtorrent/announce_entry.hpp
-    sed -i '' 's/userdata = client_data_t{});/userdata);/g' ${LIBTORRENT_ROOT}/include/libtorrent/torrent_handle.hpp
-    sed -i '' 's/(std::min)(/std::min(/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
+    sedi 's/) &;/)  ;/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
+    sedi 's/) & noexcept;/)   noexcept;/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
+    sedi 's/(time_point32::min)();/time_point32::min();/g' ${LIBTORRENT_ROOT}/include/libtorrent/announce_entry.hpp
+    sedi 's/userdata = client_data_t{});/userdata);/g' ${LIBTORRENT_ROOT}/include/libtorrent/torrent_handle.hpp
+    sedi 's/(std::min)(/std::min(/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
 }
 
 function refixCode() {
-    sed -i '' 's/)  ;/) \&;/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
-    sed -i '' 's/)   noexcept;/) \& noexcept;/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
-    sed -i '' 's/time_point32::min();/(time_point32::min)();/g' ${LIBTORRENT_ROOT}/include/libtorrent/announce_entry.hpp
-    sed -i '' 's/userdata);/userdata = client_data_t{});/g' ${LIBTORRENT_ROOT}/include/libtorrent/torrent_handle.hpp
-    sed -i '' 's/std::min(/(std::min)(/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
+    sedi 's/)  ;/) \&;/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
+    sedi 's/)   noexcept;/) \& noexcept;/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
+    sedi 's/time_point32::min();/(time_point32::min)();/g' ${LIBTORRENT_ROOT}/include/libtorrent/announce_entry.hpp
+    sedi 's/userdata);/userdata = client_data_t{});/g' ${LIBTORRENT_ROOT}/include/libtorrent/torrent_handle.hpp
+    sedi 's/std::min(/(std::min)(/g' ${LIBTORRENT_ROOT}/include/libtorrent/file_storage.hpp
 }
 
 JAVA_SRC_OUTPUT=../src/main/java/org/libtorrent4j/swig
 
-rm -rf ${JAVA_SRC_OUTPUT}
+# remove the previously generated sources, but keep the hand-written ones
+# (libtorrent_ext.java, see ext_jni.cpp)
 mkdir -p ${JAVA_SRC_OUTPUT}
+find ${JAVA_SRC_OUTPUT} -type f ! -name libtorrent_ext.java -delete
 
 fixCode
 
