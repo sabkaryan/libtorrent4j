@@ -56,6 +56,8 @@ if [ -n "$(git status --porcelain --ignore-submodules=dirty)" ]; then
 fi
 FORK_COMMIT=$(git rev-parse HEAD)
 LT_COMMIT=$(git -C swig/deps/libtorrent rev-parse HEAD)
+LT_VERSION=$(sed -n 's/^#define LIBTORRENT_VERSION "\(.*\)"$/\1/p' swig/deps/libtorrent/include/libtorrent/version.hpp)
+[ -n "$LT_VERSION" ] || { echo "cannot read LIBTORRENT_VERSION" >&2; exit 2; }
 # baked into the native libraries and generated into the jar, so a client
 # can tell a native library from another build (LibTorrent.nativeBuild())
 export LT4J_LIBTORRENT_REVISION=$LT_COMMIT
@@ -74,7 +76,7 @@ if [ "$PUBLISH" = 1 ]; then
     diff <(sed -n 's/^    "\(.*\)": "\([0-9a-f]\{64\}\)",\{0,1\}$/\2  \1/p' "$OUT/provenance.json" | sort) \
          <(sort "$OUT/SHA256SUMS") \
         || { echo "provenance.json checksums differ from SHA256SUMS" >&2; exit 1; }
-    NOTES="libtorrent4j $VERSION: upstream 2.1.0-38 (libtorrent $LT_COMMIT) plus torrent_handle::forget_piece(), see provenance.json.
+    NOTES="libtorrent4j $VERSION: libtorrent $LT_COMMIT (upstream plus the fork's patches listed in provenance.json).
 Verify downloads against SHA256SUMS."
     git push origin "HEAD:refs/heads/$(git branch --show-current)"   # fast-forward only
     git tag -a "$TAG" -m "libtorrent4j $VERSION" "$FORK_COMMIT"
@@ -181,6 +183,11 @@ verify_lib() { # <file> <arch regex>
     # a found symbol reads as missing, and a present test export as absent
     grep -q '_libtorrent_1ext_forget_1piece$' <<< "$ex" \
         || { echo "MISSING EXPORT: $1 has no libtorrent_ext.forget_piece" >&2; exit 1; }
+    grep -q '_libtorrent_1ext_native_1build$' <<< "$ex" \
+        || { echo "MISSING EXPORT: $1 has no libtorrent_ext.native_build" >&2; exit 1; }
+    # the libtorrent it reports (libtorrent_ext.nativeBuild()) must be this one
+    LC_ALL=C grep -a -q -F "$LT_VERSION $LT_COMMIT" "$1" \
+        || { echo "WRONG LIBTORRENT: $1 does not report '$LT_VERSION $LT_COMMIT'" >&2; exit 1; }
     if grep -q 'for_1test$' <<< "$ex"; then
         echo "TEST-ONLY EXPORTS in a release library: $1" >&2; exit 1
     fi
@@ -257,7 +264,11 @@ cd "$OUT"
 shasum -a 256 *.jar > SHA256SUMS
 IMAGE_ID=$(docker image inspect "$IMAGE" --format '{{.Id}}' 2>/dev/null || echo "not used")
 # libtorrent commits on top of the upstream merge-base of this fork
-LT_BASE=$(git -C "$ROOT/swig/deps/libtorrent" merge-base HEAD "$(git -C "$ROOT/swig/deps/libtorrent" rev-parse --verify -q upstream/master || echo a01469c8d1f88dd83bed458ffccffab2727b9d2a)")
+# (upstream RC_2_1 if the submodule has an "upstream" remote, else the 2.1.2
+# commit the fork's patches were put on)
+LT_UPSTREAM=$(git -C "$ROOT/swig/deps/libtorrent" rev-parse --verify -q upstream/RC_2_1 \
+    || echo 2fbfc51973b52414d4583bc7b1275f2367797e9c)
+LT_BASE=$(git -C "$ROOT/swig/deps/libtorrent" merge-base HEAD "$LT_UPSTREAM")
 PATCHES=$(git -C "$ROOT/swig/deps/libtorrent" log --reverse --format='%H %s' "$LT_BASE"..HEAD \
     | awk '{h=$1; $1=""; sub(/^ /,""); gsub(/"/,"\\\""); printf "%s    {\"commit\": \"%s\", \"subject\": \"%s\"}", (NR>1?",\n":""), h, $0}')
 cat > provenance.json <<EOF
