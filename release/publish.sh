@@ -59,6 +59,7 @@ LT_COMMIT=$(git -C swig/deps/libtorrent rev-parse HEAD)
 # baked into the native libraries and generated into the jar, so a client
 # can tell a native library from another build (LibTorrent.nativeBuild())
 export LT4J_LIBTORRENT_REVISION=$LT_COMMIT
+swig/write-revision-header.sh
 
 if [ "$PUBLISH" = 1 ]; then
     [ -f "$OUT/provenance.json" ] && [ -f "$OUT/SHA256SUMS" ] \
@@ -113,8 +114,7 @@ build_android() { # <abi-script-suffix> <abi-dir>
     fi
     clean_datachannel "swig/bin/release/android/$abi"
     # run the script from the repository, not the copy baked into the image
-    docker run --rm -i -e LT4J_JOBS="${LT4J_JOBS:-4}" -e LT4J_LIBTORRENT_REVISION \
-        -v "$ROOT":/libtorrent4j "$IMAGE" \
+    docker run --rm -i -e LT4J_JOBS="${LT4J_JOBS:-4}" -v "$ROOT":/libtorrent4j "$IMAGE" \
         bash "/libtorrent4j/swig/android-build/b2-$suffix.sh"
     [ -f "swig/bin/release/android/$abi/libtorrent4j.so" ]
 }

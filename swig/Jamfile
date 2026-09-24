@@ -40,18 +40,6 @@ rule libtorrent_linking ( properties * )
     return $(result) ;
 }
 
-# the git revision of the libtorrent submodule, baked into the library and
-# reported by libtorrent_ext.nativeBuild(); the build scripts set it. b2 does
-# not rebuild ext_jni.cpp when only this changes: an incremental build after
-# moving the submodule reports the old revision, which then differs from
-# LibTorrent.expectedNativeBuild() (it cannot match by accident). A clean
-# build, as release/publish.sh does, bakes the current one.
-LT4J_LIBTORRENT_REVISION = [ os.environ LT4J_LIBTORRENT_REVISION ] ;
-if $(LT4J_LIBTORRENT_REVISION)
-{
-    ECHO "LT4J_LIBTORRENT_REVISION = "$(LT4J_LIBTORRENT_REVISION) ;
-}
-
 feature iostream : off on : composite propagated link-incompatible ;
 feature.compose <iostream>off : <define>BOOST_NO_IOSTREAM ;
 
@@ -70,7 +58,6 @@ lib torrent4j
     : # requirements
     <conditional>@libtorrent_linking
     <include>.
-    <define>LT4J_LIBTORRENT_REVISION=\\\"$(LT4J_LIBTORRENT_REVISION:E=unknown)\\\"
 
     : # default build
     <link>shared

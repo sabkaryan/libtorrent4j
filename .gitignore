@@ -23,3 +23,6 @@ dht_shell.dat
 demo/build/
 /stand/build
 /release/out
+
+# written by swig/write-revision-header.sh at build time
+swig/lt4j_revision.hpp

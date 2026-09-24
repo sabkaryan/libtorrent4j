@@ -22,9 +22,12 @@ libtorrent::torrent_handle const* handle_of(jlong ptr)
 
 } // anonymous namespace
 
-// the git revision of swig/deps/libtorrent this library is built from, passed
-// in by the build (swig/Jamfile, LT4J_LIBTORRENT_REVISION)
-#ifndef LT4J_LIBTORRENT_REVISION
+// the git revision of swig/deps/libtorrent this library is built from, written
+// by swig/write-revision-header.sh (the build scripts run it). A header rather
+// than a -D define, so that b2 recompiles this file when the revision changes
+#if __has_include("lt4j_revision.hpp")
+#include "lt4j_revision.hpp"
+#else
 #define LT4J_LIBTORRENT_REVISION "unknown"
 #endif
 
