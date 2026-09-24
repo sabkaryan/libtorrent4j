@@ -8,9 +8,9 @@
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 rev=${LT4J_LIBTORRENT_REVISION:-$(git -C "$here/deps/libtorrent" rev-parse HEAD)}
-case $rev in
-    *[!0-9a-f]*|"") echo "not a git revision: '$rev'" >&2; exit 2 ;;
-esac
+# a full revision, as the Gradle side (generateNativeBuildInfo) requires; a
+# short one would build here and fail there
+[[ $rev =~ ^[0-9a-f]{40}$ ]] || { echo "not a full git revision (40 hex digits): '$rev'" >&2; exit 2; }
 version=$(sed -n 's/^version = "\(.*\)"$/\1/p' "$here/../build.gradle.kts")
 [ -n "$version" ] || { echo "cannot read version from build.gradle.kts" >&2; exit 2; }
 out=$here/lt4j_revision.hpp

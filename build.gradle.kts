@@ -46,12 +46,13 @@ tasks.withType<JavaCompile> {
     options.encoding = "UTF-8"
 }
 
-// The libtorrent the native library has to be built from: the version in the
-// submodule's version.hpp and the submodule's git revision (or
-// LT4J_LIBTORRENT_REVISION, if set). The native build bakes the same pair in
-// (swig/Jamfile), and LibTorrent.nativeBuild() / expectedNativeBuild() let a
-// client compare the two at startup instead of running with a native library
-// from another build.
+// The build the native library has to come from: the libtorrent version in the
+// submodule's version.hpp, the submodule's git revision (or
+// LT4J_LIBTORRENT_REVISION, if set) and this project's version. The native
+// build bakes the same three in (swig/write-revision-header.sh writes
+// swig/lt4j_revision.hpp for ext_jni.cpp), and LibTorrent.nativeBuild() /
+// expectedNativeBuild() let a client compare them at startup instead of
+// running with a native library from another build.
 val libtorrentRoot = file("swig/deps/libtorrent")
 val libtorrentRevision: Provider<String> = providers.environmentVariable("LT4J_LIBTORRENT_REVISION")
     .orElse(providers.exec {

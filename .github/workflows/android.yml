@@ -23,6 +23,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      # ext_jni.cpp includes the header this writes (the revision and
+      # version libtorrent_ext.nativeBuild() reports); builds fail without it
+      - name: revision header
+        run: swig/write-revision-header.sh
       - name: setup boost
         run: |
           wget -nv -O boost.tar.gz https://archives.boost.io/release/${BOOST_DOT_VERSION}/source/boost_${BOOST_VERSION}.tar.gz
@@ -90,6 +94,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      # ext_jni.cpp includes the header this writes (the revision and
+      # version libtorrent_ext.nativeBuild() reports); builds fail without it
+      - name: revision header
+        run: swig/write-revision-header.sh
       - name: setup boost
         run: |
           wget -nv -O boost.tar.gz https://archives.boost.io/release/${BOOST_DOT_VERSION}/source/boost_${BOOST_VERSION}.tar.gz
@@ -157,6 +165,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      # ext_jni.cpp includes the header this writes (the revision and
+      # version libtorrent_ext.nativeBuild() reports); builds fail without it
+      - name: revision header
+        run: swig/write-revision-header.sh
       - name: setup boost
         run: |
           wget -nv -O boost.tar.gz https://archives.boost.io/release/${BOOST_DOT_VERSION}/source/boost_${BOOST_VERSION}.tar.gz
@@ -224,6 +236,10 @@ jobs:
       - uses: actions/checkout@v5
         with:
           submodules: recursive
+      # ext_jni.cpp includes the header this writes (the revision and
+      # version libtorrent_ext.nativeBuild() reports); builds fail without it
+      - name: revision header
+        run: swig/write-revision-header.sh
       - name: setup boost
         run: |
           wget -nv -O boost.tar.gz https://archives.boost.io/release/${BOOST_DOT_VERSION}/source/boost_${BOOST_VERSION}.tar.gz
