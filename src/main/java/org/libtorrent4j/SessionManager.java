@@ -979,7 +979,9 @@ public class SessionManager {
 
     /**
      * This methods return the last error recorded calling the alert
-     * listeners.
+     * listeners. An exception thrown by a listener is caught so the alert
+     * loop goes on; it is also logged (logger "lt4j", level WARNING) with the
+     * alert type and the stack trace.
      *
      * @return the last alert listener exception registered (or null)
      */
@@ -1047,7 +1049,10 @@ public class SessionManager {
             try {
                 listener.alert(a);
             } catch (Throwable e) {
-                Log.warn("Error calling alert listener: " + e.getMessage());
+                // the listener did not handle this alert: say which alert and why,
+                // with the stack trace, or it looks like an alert that never came
+                Log.warn("alert listener " + listener.getClass().getName() + " threw "
+                        + e.getClass().getName() + " handling " + a.type() + ": " + e.getMessage(), e);
                 lastAlertError = e;
             }
         }
