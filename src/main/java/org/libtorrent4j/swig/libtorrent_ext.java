@@ -35,8 +35,9 @@ public final class libtorrent_ext {
     private static native int forget_piece(long handlePtr, int piece);
 
     /**
-     * The libtorrent the native library was built from, as
-     * {@code "<libtorrent version> <git revision of swig/deps/libtorrent>"}
+     * The build the native library comes from, as
+     * {@code "<libtorrent version> <git revision of swig/deps/libtorrent>
+     * <libtorrent4j version>"}
      * ({@code "unknown"} instead of the revision if b2 was run without
      * swig/write-revision-header.sh, which the build scripts run).
      * A native library from before this entry point was added throws

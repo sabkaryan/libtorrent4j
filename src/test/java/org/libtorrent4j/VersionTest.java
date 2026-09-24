@@ -17,9 +17,14 @@ import static org.junit.Assert.assertTrue;
  */
 public class VersionTest {
 
+    // libtorrent4j versions are the libtorrent version (without its fourth
+    // part) and a numeric build number: 2.1.2.0 -> 2.1.2-<n>
     @Test
     public void testLibtorrent4jVersionValue() {
-        assertTrue(LibTorrent.libtorrent4jVersion().startsWith("2.1.0-"));
+        String lt = LibTorrent.version();
+        String prefix = lt.substring(0, lt.lastIndexOf('.')) + "-";
+        String v = LibTorrent.libtorrent4jVersion();
+        assertTrue(v, v.startsWith(prefix) && v.substring(prefix.length()).matches("\\d+(\\.\\d+)*"));
     }
 
     @Test

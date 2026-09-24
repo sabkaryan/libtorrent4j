@@ -54,6 +54,13 @@ if [ -n "$(git status --porcelain --ignore-submodules=dirty)" ]; then
     git status --short --ignore-submodules=dirty >&2
     exit 2
 fi
+# the libraries report the submodule's revision: it has to describe the
+# sources they are built from (untracked build files do not matter)
+if ! git -C swig/deps/libtorrent diff --quiet HEAD --; then
+    echo "swig/deps/libtorrent has uncommitted changes; commit them first" >&2
+    git -C swig/deps/libtorrent status --short --untracked-files=no >&2
+    exit 2
+fi
 FORK_COMMIT=$(git rev-parse HEAD)
 LT_COMMIT=$(git -C swig/deps/libtorrent rev-parse HEAD)
 LT_VERSION=$(sed -n 's/^#define LIBTORRENT_VERSION "\(.*\)"$/\1/p' swig/deps/libtorrent/include/libtorrent/version.hpp)
@@ -185,9 +192,9 @@ verify_lib() { # <file> <arch regex>
         || { echo "MISSING EXPORT: $1 has no libtorrent_ext.forget_piece" >&2; exit 1; }
     grep -q '_libtorrent_1ext_native_1build$' <<< "$ex" \
         || { echo "MISSING EXPORT: $1 has no libtorrent_ext.native_build" >&2; exit 1; }
-    # the libtorrent it reports (libtorrent_ext.nativeBuild()) must be this one
-    LC_ALL=C grep -a -q -F "$LT_VERSION $LT_COMMIT" "$1" \
-        || { echo "WRONG LIBTORRENT: $1 does not report '$LT_VERSION $LT_COMMIT'" >&2; exit 1; }
+    # the build it reports (libtorrent_ext.nativeBuild()) must be this one
+    LC_ALL=C grep -a -q -F "$LT_VERSION $LT_COMMIT $VERSION" "$1" \
+        || { echo "WRONG BUILD: $1 does not report '$LT_VERSION $LT_COMMIT $VERSION'" >&2; exit 1; }
     if grep -q 'for_1test$' <<< "$ex"; then
         echo "TEST-ONLY EXPORTS in a release library: $1" >&2; exit 1
     fi

@@ -17,9 +17,12 @@ public class NativeBuildTest {
         assertEquals(LibTorrent.expectedNativeBuild(), LibTorrent.nativeBuild());
     }
 
+    // two builds of this library on the same libtorrent differ in their JNI
+    // code, so the libtorrent4j version is part of it too
     @Test
-    public void testExpectedNativeBuildNamesVersionAndRevision() {
+    public void testExpectedNativeBuildNamesVersionRevisionAndLibtorrent4jVersion() {
         String expected = LibTorrent.expectedNativeBuild();
-        assertTrue(expected, expected.matches("\\d+\\.\\d+\\.\\d+\\.\\d+ [0-9a-f]{40}"));
+        assertTrue(expected, expected.matches("\\d+\\.\\d+\\.\\d+\\.\\d+ [0-9a-f]{40} \\S+"));
+        assertTrue(expected, expected.endsWith(" " + LibTorrent.libtorrent4jVersion()));
     }
 }

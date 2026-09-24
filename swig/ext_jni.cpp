@@ -29,16 +29,17 @@ libtorrent::torrent_handle const* handle_of(jlong ptr)
 #include "lt4j_revision.hpp"
 #else
 #define LT4J_LIBTORRENT_REVISION "unknown"
+#define LT4J_VERSION "unknown"
 #endif
 
 extern "C" {
 
-// "<libtorrent version> <revision>": what the jar compares with the libtorrent
-// it was built against (LibTorrent.expectedNativeBuild())
+// "<libtorrent version> <revision> <libtorrent4j version>": what the jar
+// compares with the build it expects (LibTorrent.expectedNativeBuild())
 JNIEXPORT jstring JNICALL
 Java_org_libtorrent4j_swig_libtorrent_1ext_native_1build(JNIEnv* env, jclass)
 {
-    return env->NewStringUTF(LIBTORRENT_VERSION " " LT4J_LIBTORRENT_REVISION);
+    return env->NewStringUTF(LIBTORRENT_VERSION " " LT4J_LIBTORRENT_REVISION " " LT4J_VERSION);
 }
 
 JNIEXPORT jint JNICALL

@@ -47,8 +47,8 @@ public final class LibTorrent {
     }
 
     /**
-     * The libtorrent the loaded native library was built from, as
-     * {@code "<libtorrent version> <git revision>"}. Compare with
+     * The build the loaded native library comes from, as
+     * {@code "<libtorrent version> <git revision> <libtorrent4j version>"}. Compare with
      * {@link #expectedNativeBuild()} to detect a native library from another
      * build. A native library too old to report it throws
      * {@link UnsatisfiedLinkError}.
@@ -60,13 +60,14 @@ public final class LibTorrent {
     }
 
     /**
-     * The libtorrent the native library has to be built from for this jar,
-     * as {@code "<libtorrent version> <git revision>"}.
+     * The build the native library has to come from for this jar, as
+     * {@code "<libtorrent version> <git revision> <libtorrent4j version>"}.
      *
      * @return the expected result of {@link #nativeBuild()}
      */
     public static String expectedNativeBuild() {
-        return NativeBuildInfo.LIBTORRENT_VERSION + " " + NativeBuildInfo.LIBTORRENT_REVISION;
+        return NativeBuildInfo.LIBTORRENT_VERSION + " " + NativeBuildInfo.LIBTORRENT_REVISION
+            + " " + NativeBuildInfo.LIBTORRENT4J_VERSION;
     }
 
     /**
