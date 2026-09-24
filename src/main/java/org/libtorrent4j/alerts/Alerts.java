@@ -680,6 +680,12 @@ public final class Alerts {
                 return new IpBanAlert(cast_to_ip_ban_alert(a));
             }
         };
+        arr[108] = new CastLambda() {
+            @Override
+            public Alert<?> cast(alert a) {
+                return new PieceFlushedAlert(cast_to_piece_flushed_alert(a));
+            }
+        };
 
         return arr;
     }

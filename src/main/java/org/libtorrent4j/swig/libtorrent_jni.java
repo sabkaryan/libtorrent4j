@@ -2078,6 +2078,7 @@ public class libtorrent_jni {
   public final static native long alert_cast_to_file_priorities_alert(long jarg1, alert jarg1_);
   public final static native long alert_cast_to_file_status_alert(long jarg1, alert jarg1_);
   public final static native long alert_cast_to_ip_ban_alert(long jarg1, alert jarg1_);
+  public final static native long alert_cast_to_piece_flushed_alert(long jarg1, alert jarg1_);
   public final static native long new_alert_category_t();
   public final static native long alert_category_t_all();
   public final static native boolean alert_category_t_non_zero(long jarg1, alert_category_t jarg1_);
@@ -3186,6 +3187,15 @@ public class libtorrent_jni {
   public final static native void ip_ban_alert_banned_address_set(long jarg1, ip_ban_alert jarg1_, long jarg2);
   public final static native long ip_ban_alert_banned_address_get(long jarg1, ip_ban_alert jarg1_);
   public final static native void delete_ip_ban_alert(long jarg1);
+  public final static native int piece_flushed_alert_priority_get();
+  public final static native int piece_flushed_alert_alert_type_get();
+  public final static native int piece_flushed_alert_type(long jarg1, piece_flushed_alert jarg1_);
+  public final static native long piece_flushed_alert_category(long jarg1, piece_flushed_alert jarg1_);
+  public final static native String piece_flushed_alert_what(long jarg1, piece_flushed_alert jarg1_);
+  public final static native long piece_flushed_alert_static_category_get();
+  public final static native String piece_flushed_alert_message(long jarg1, piece_flushed_alert jarg1_);
+  public final static native int piece_flushed_alert_piece_index_get(long jarg1, piece_flushed_alert jarg1_);
+  public final static native void delete_piece_flushed_alert(long jarg1);
   public final static native long new_picker_flags_t();
   public final static native long picker_flags_t_all();
   public final static native boolean picker_flags_t_non_zero(long jarg1, picker_flags_t jarg1_);
@@ -3735,6 +3745,7 @@ public class libtorrent_jni {
   public final static native long file_priorities_alert_SWIGUpcast(long jarg1);
   public final static native long file_status_alert_SWIGUpcast(long jarg1);
   public final static native long ip_ban_alert_SWIGUpcast(long jarg1);
+  public final static native long piece_flushed_alert_SWIGUpcast(long jarg1);
   public final static native long settings_pack_SWIGUpcast(long jarg1);
   public final static native long session_SWIGUpcast(long jarg1);
 

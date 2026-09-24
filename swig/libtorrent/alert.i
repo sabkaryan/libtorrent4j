@@ -117,6 +117,7 @@ struct alert_category_tag;
     CAST_ALERT_METHOD(file_priorities_alert)
     CAST_ALERT_METHOD(file_status_alert)
     CAST_ALERT_METHOD(ip_ban_alert)
+    CAST_ALERT_METHOD(piece_flushed_alert)
 
 }
 

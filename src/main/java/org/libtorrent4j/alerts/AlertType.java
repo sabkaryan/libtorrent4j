@@ -113,6 +113,7 @@ public enum AlertType {
     FILE_PRIORITIES(file_priorities_alert.alert_type),
     FILE_STATUS(file_status_alert.alert_type),
     IP_BAN(ip_ban_alert.alert_type),
+    PIECE_FLUSHED(piece_flushed_alert.alert_type),
     UNKNOWN(-1);
 
     private static final AlertType[] TABLE = buildTable();
@@ -249,6 +250,7 @@ public enum AlertType {
         arr[105] = FILE_PRIORITIES;
         arr[106] = FILE_STATUS;
         arr[107] = IP_BAN;
+        arr[108] = PIECE_FLUSHED;
 
         return arr;
     }
