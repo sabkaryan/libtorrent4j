@@ -103,6 +103,18 @@ public final class SessionParams
         h.set_default_disk_io_constructor();
     }
 
+    /**
+     * Internally set the session to use the in-memory disk back end on top of
+     * the default one, with {@code pool} as its shared state. The session keeps
+     * its own reference to the pool: closing the {@link MemoryStoragePool}
+     * afterwards does not affect it.
+     *
+     * @param pool the pool the session's torrents are stored in
+     */
+    public void setMemoryDiskIo(MemoryStoragePool pool) {
+        pool.setDiskIo(h);
+    }
+
     private static session_params bdecode0(File file) {
         try {
             byte[] data = Files.bytes(file);
