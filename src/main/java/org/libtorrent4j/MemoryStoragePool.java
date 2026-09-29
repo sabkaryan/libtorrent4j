@@ -230,7 +230,8 @@ public final class MemoryStoragePool implements AutoCloseable {
      * of the default back end differs from the pool's): the piece stays in
      * memory. A partial piece whose write failed goes to the file anyway,
      * without the failed block: its hash fails later and it is downloaded
-     * again.
+     * again. Every failed attempt counts: a piece moved again that fails
+     * again counts again.
      *
      * @return the count, or {@link #NOT_MANAGED}
      */
@@ -418,9 +419,11 @@ public final class MemoryStoragePool implements AutoCloseable {
     /**
      * Drops what the pool keeps of removed torrents with these info-hashes
      * (the v1 or the v2 one matches) for {@link #filterResume(AddTorrentParams)}.
-     * Call it after the filtered resume data of the removed torrent is
-     * written: {@code filterResume} leaves the resume data of a torrent the
-     * pool does not know unchanged.
+     * Every removal leaves such a record; without this call they pile up for
+     * the life of the pool. Call it after the filtered resume data of the
+     * removed torrent is written, or at the removal if there will be none:
+     * {@code filterResume} leaves the resume data of a torrent the pool does
+     * not know unchanged.
      */
     public void forgetRecord(InfoHash ih) {
         long pool = acquire();
