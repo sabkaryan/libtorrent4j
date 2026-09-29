@@ -252,7 +252,7 @@ public final class MemoryStoragePool implements AutoCloseable {
      * <p>
      * This call waits for the network thread. It must not be called from the
      * network thread: the session's alert notify callback
-     * ({@code set_alert_notify}) or an extension. An {@link AlertListener} of
+     * ({@code session_handle.set_alert_notify_callback}) or an extension. An {@link AlertListener} of
      * {@link SessionManager} runs on its own thread, and may call it.
      * <p>
      * With {@link PiecePlace#FILE} the caller may release the bytes in the
