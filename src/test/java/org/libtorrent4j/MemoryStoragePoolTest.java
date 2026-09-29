@@ -57,38 +57,15 @@ public class MemoryStoragePoolTest {
     public void testPiecesInMemoryAreReadForgottenAndFilteredFromResumeData() throws Exception {
         byte[] content = new byte[(NUM_PIECES - 1) * PIECE + LAST];
         new Random(7).nextBytes(content);
-        TorrentInfo ti = makeTorrent(content);
+        TorrentInfo ti = makeTorrent("source", content);
         assertEquals(NUM_PIECES, ti.numPieces());
 
         MemoryStoragePool pool = new MemoryStoragePool();
         pool.setDefaultPolicy(MemoryPolicy.MEMORY);
         pool.setLimit(64L * 1024 * 1024);
 
-        final BlockingQueue<AddTorrentParams> resume = new LinkedBlockingQueue<>();
-        SessionManager s = new SessionManager();
-        s.addListener(new AlertListener() {
-            @Override
-            public int[] types() {
-                return new int[]{AlertType.SAVE_RESUME_DATA.swig()};
-            }
-
-            @Override
-            public void alert(Alert<?> alert) {
-                // a copy (through the bencoded form a client writes): the
-                // alert's params live only as long as the alert
-                byte[] buf = AddTorrentParams.writeResumeDataBuf(((SaveResumeDataAlert) alert).params());
-                error_code ec = new error_code();
-                add_torrent_params copy = read_resume_data_ex(Vectors.bytes2byte_vector(buf), ec);
-                assertEquals(ec.message(), 0, ec.value());
-                resume.add(new AddTorrentParams(copy));
-            }
-        });
-        SettingsPack sp = new SettingsPack();
-        sp.setEnableDht(false);
-        sp.setEnableLsd(false);
-        SessionParams params = new SessionParams(sp);
-        params.setMemoryDiskIo(pool);
-        s.start(params);
+        BlockingQueue<AddTorrentParams> resume = new LinkedBlockingQueue<>();
+        SessionManager s = startSession(pool, resume);
         try {
             s.download(ti, folder.newFolder("download"));
             TorrentHandle th = waitForDownloading(s, ti);
@@ -221,6 +198,103 @@ public class MemoryStoragePoolTest {
         }
     }
 
+    // every other call once: a registration by info-hash, claims by handle,
+    // the owner's persist set, dropping an owner, forgetting a record and the
+    // counters
+    @Test
+    public void testRegistrationClaimsRecordsAndCounters() throws Exception {
+        final byte[] a = new byte[4 * PIECE];
+        new Random(11).nextBytes(a);
+        final byte[] b = new byte[4 * PIECE];
+        new Random(12).nextBytes(b);
+        TorrentInfo tiA = makeTorrent("a", a);
+        TorrentInfo tiB = makeTorrent("b", b);
+
+        final MemoryStoragePool pool = new MemoryStoragePool();
+        pool.setDefaultPolicy(MemoryPolicy.MEMORY);
+        pool.setLimit(64L * 1024 * 1024);
+        // registered before it is added: b goes to the file
+        pool.setPolicy(tiB.infoHashes(), MemoryPolicy.FILE);
+
+        BlockingQueue<AddTorrentParams> resume = new LinkedBlockingQueue<>();
+        SessionManager s = startSession(pool, resume);
+        try {
+            s.download(tiA, folder.newFolder("download-a"));
+            s.download(tiB, folder.newFolder("download-b"));
+            final TorrentHandle thA = waitForDownloading(s, tiA);
+            final TorrentHandle thB = waitForDownloading(s, tiB);
+
+            // piece 3 is left out of both for now
+            for (int p = 0; p < 3; p++) {
+                thA.addPiece(p, piece(a, p));
+                thB.addPiece(p, piece(b, p));
+            }
+            waitFor("pieces 0-2 of a in memory", () -> inMemory(pool, thA, 0, 1, 2));
+            waitFor("pieces 0-2 of b written to the file", () -> flushed(thB, 0, 1, 2));
+            assertEquals("b is registered for the file", 0, pool.inMemory(thB).complete().count());
+            assertEquals(0, pool.inMemory(thB).partial().count());
+            assertEquals(0, pool.heldBytes(thB).complete());
+            assertEquals(0, pool.heldBytes(thB).partial());
+            assertEquals(3L * PIECE, pool.heldBytes(thA).complete());
+
+            // the persist set of owner 5 moves piece 0 to the file
+            pool.setPersist(thA, 5, 0);
+            waitFor("piece 0 moved to the file", () -> pool.pendingPersistBytes(thA) == 0
+                    && !inMemory(pool, thA, 0) && flushed(thA, 0));
+            assertTrue(inMemory(pool, thA, 1, 2));
+
+            // owner 1 claims file 0 (every piece) for the file: pieces 1 and 2 move
+            pool.setPolicy(thA, 1, MemoryPolicy.FILE, 0);
+            waitFor("pieces 1 and 2 moved to the file", () -> pool.pendingPersistBytes(thA) == 0
+                    && pool.inMemory(thA).complete().count() == 0 && flushed(thA, 1, 2));
+            assertEquals(0, pool.heldBytes(thA).complete());
+
+            // without the claims of owners 1 and 5 the next piece starts in
+            // memory again (the default policy); the bytes already in the
+            // file stay there
+            pool.dropOwner(thA, 1);
+            pool.dropOwner(thA, 5);
+            thA.addPiece(3, piece(a, 3));
+            waitFor("piece 3 in memory", () -> inMemory(pool, thA, 3));
+            assertEquals(1, pool.inMemory(thA).complete().count());
+            assertEquals((long) PIECE, pool.heldBytes(thA).complete());
+            assertEquals(0, pool.heldBytes(thA).partial());
+
+            // the counters
+            assertTrue(pool.heldBytes() >= PIECE);
+            assertTrue(pool.retiredBytes() >= 0);
+            assertEquals("nothing spilled below the limit", 0, pool.spilledPieces());
+            assertEquals(0, pool.hashMissingBlocks());
+            assertEquals(0, pool.persistFailures(thA));
+            assertEquals(0, pool.persistFailures(thB));
+            assertEquals(0, pool.pendingPersistBytes(thB));
+
+            // a removed torrent's record filters its resume data until it is
+            // forgotten; then the resume data is left unchanged
+            AddTorrentParams filtered = saveResumeData(s, thA, resume);
+            AddTorrentParams unchanged = saveResumeData(s, thA, resume);
+            for (int p = 0; p < 4; p++) {
+                assertTrue("resume data names piece " + p, unchanged.swig().get_have_pieces().get_bit(p));
+            }
+            s.remove(thA);
+            waitFor("a removed", () -> pool.pendingPersistBytes(thA) == MemoryStoragePool.NOT_MANAGED);
+            pool.filterResume(filtered);
+            assertFalse("piece 3 was only in memory", filtered.swig().get_have_pieces().get_bit(3));
+            for (int p = 0; p < 3; p++) {
+                assertTrue("piece " + p + " is in the file", filtered.swig().get_have_pieces().get_bit(p));
+            }
+            pool.forgetRecord(tiA.infoHashes());
+            pool.filterResume(unchanged);
+            for (int p = 0; p < 4; p++) {
+                assertTrue("after forgetRecord piece " + p + " stays",
+                        unchanged.swig().get_have_pieces().get_bit(p));
+            }
+        } finally {
+            pool.close();
+            s.stop();
+        }
+    }
+
     @Test
     public void testCallAfterCloseThrows() {
         MemoryStoragePool pool = new MemoryStoragePool(1024 * 1024);
@@ -288,8 +362,69 @@ public class MemoryStoragePoolTest {
         return th;
     }
 
-    private TorrentInfo makeTorrent(byte[] content) throws Exception {
-        File dir = folder.newFolder("source");
+    // a session on the pool whose save resume data alerts go to `resume`
+    private static SessionManager startSession(MemoryStoragePool pool, final BlockingQueue<AddTorrentParams> resume) {
+        SessionManager s = new SessionManager();
+        s.addListener(new AlertListener() {
+            @Override
+            public int[] types() {
+                return new int[]{AlertType.SAVE_RESUME_DATA.swig()};
+            }
+
+            @Override
+            public void alert(Alert<?> alert) {
+                // a copy (through the bencoded form a client writes): the
+                // alert's params live only as long as the alert
+                byte[] buf = AddTorrentParams.writeResumeDataBuf(((SaveResumeDataAlert) alert).params());
+                error_code ec = new error_code();
+                add_torrent_params copy = read_resume_data_ex(Vectors.bytes2byte_vector(buf), ec);
+                assertEquals(ec.message(), 0, ec.value());
+                resume.add(new AddTorrentParams(copy));
+            }
+        });
+        SettingsPack sp = new SettingsPack();
+        sp.setEnableDht(false);
+        sp.setEnableLsd(false);
+        SessionParams params = new SessionParams(sp);
+        params.setMemoryDiskIo(pool);
+        s.start(params);
+        return s;
+    }
+
+    private static byte[] piece(byte[] content, int p) {
+        return Arrays.copyOfRange(content, p * PIECE, Math.min(content.length, (p + 1) * PIECE));
+    }
+
+    private static boolean flushed(TorrentHandle th, int... pieces) {
+        PieceIndexBitfield f = th.status(TorrentHandle.QUERY_FLUSHED_PIECES).flushedPieces();
+        for (int p : pieces) {
+            if (f.size() <= p || !f.getBit(p)) return false;
+        }
+        return true;
+    }
+
+    private static boolean inMemory(MemoryStoragePool pool, TorrentHandle th, int... pieces) {
+        PieceIndexBitfield c = pool.inMemory(th).complete();
+        for (int p : pieces) {
+            if (c.size() <= p || !c.getBit(p)) return false;
+        }
+        return true;
+    }
+
+    private static void waitFor(String what, Condition c) throws InterruptedException {
+        long end = System.currentTimeMillis() + TIMEOUT_MS;
+        while (System.currentTimeMillis() < end && !c.met()) {
+            Thread.sleep(50);
+        }
+        assertTrue(what, c.met());
+    }
+
+    private interface Condition {
+        boolean met();
+    }
+
+    private TorrentInfo makeTorrent(String name, byte[] content) throws Exception {
+        File dir = folder.newFolder(name);
         File data = new File(dir, "data.bin");
         Utils.writeByteArrayToFile(data, content, false);
 

@@ -27,6 +27,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * {@link #close()} releases this object's reference to the native pool; a
  * session made with it keeps its own, so closing it while a session runs is
  * safe. Any call after {@code close()} throws {@link IllegalStateException}.
+ * A pool that is never closed keeps its native object until the process ends.
  */
 public final class MemoryStoragePool implements AutoCloseable {
 
@@ -205,8 +206,12 @@ public final class MemoryStoragePool implements AutoCloseable {
 
     /**
      * Bytes in memory that wait to be moved to the file. The calls that move
-     * pieces count them before they return: 0 right after such a call means
-     * nothing is to be moved. Pieces that have not arrived are not counted.
+     * pieces ({@code setPolicy} by handle, {@code persist}, {@code setPersist})
+     * count them before they return, and the moves run on the network thread
+     * without waiting: 0 right after such a call means nothing is to be moved.
+     * Pieces that have not arrived are not counted. The blocks of a partial
+     * piece count until the default back end wrote them; the move flushes them
+     * without waiting for a download, a full cache or a pause.
      *
      * @return the bytes, or {@link #NOT_MANAGED}
      */
@@ -223,7 +228,9 @@ public final class MemoryStoragePool implements AutoCloseable {
     /**
      * The number of moves to the file that failed (a write error, or the hash
      * of the default back end differs from the pool's): the piece stays in
-     * memory.
+     * memory. A partial piece whose write failed goes to the file anyway,
+     * without the failed block: its hash fails later and it is downloaded
+     * again.
      *
      * @return the count, or {@link #NOT_MANAGED}
      */
@@ -244,7 +251,9 @@ public final class MemoryStoragePool implements AutoCloseable {
      * any more.
      * <p>
      * This call waits for the network thread. It must not be called from the
-     * network thread (an alert handler or an extension running there).
+     * network thread: the session's alert notify callback
+     * ({@code set_alert_notify}) or an extension. An {@link AlertListener} of
+     * {@link SessionManager} runs on its own thread, and may call it.
      * <p>
      * With {@link PiecePlace#FILE} the caller may release the bytes in the
      * file, with the limitation of the torrent's forget piece: in a torrent
@@ -409,6 +418,9 @@ public final class MemoryStoragePool implements AutoCloseable {
     /**
      * Drops what the pool keeps of removed torrents with these info-hashes
      * (the v1 or the v2 one matches) for {@link #filterResume(AddTorrentParams)}.
+     * Call it after the filtered resume data of the removed torrent is
+     * written: {@code filterResume} leaves the resume data of a torrent the
+     * pool does not know unchanged.
      */
     public void forgetRecord(InfoHash ih) {
         long pool = acquire();
