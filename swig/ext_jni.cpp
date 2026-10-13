@@ -187,6 +187,31 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1set_1limit(
 }
 
 JNIEXPORT void JNICALL
+Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1set_1torrent_1limit(
+    JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jlong bytes)
+{
+    guarded(env, 0, [&] {
+        pool_of(pool).set_limit(*handle_of(handle_ptr), std::int64_t(bytes));
+        return 0;
+    });
+}
+
+JNIEXPORT jlong JNICALL
+Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1declined_1pieces(
+    JNIEnv* env, jclass, jlong pool)
+{
+    return guarded(env, jlong(0), [&] { return jlong(pool_of(pool).declined_pieces()); });
+}
+
+// the native library has libtorrent::memory_policy::memory_only (a library
+// from before it has no such entry point)
+JNIEXPORT jboolean JNICALL
+Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1only_1supported(JNIEnv*, jclass)
+{
+    return static_cast<jboolean>(libtorrent::memory_policy::memory_only == libtorrent::memory_policy(2));
+}
+
+JNIEXPORT void JNICALL
 Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1persist(
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jintArray pieces)
 {

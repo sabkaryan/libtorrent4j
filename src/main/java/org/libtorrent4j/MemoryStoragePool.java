@@ -112,7 +112,10 @@ public final class MemoryStoragePool implements AutoCloseable {
 
     /**
      * Registers the policy of a torrent before it is added. It matches by the
-     * v1 info-hash or by the truncated v2 info-hash.
+     * v1 info-hash or by the truncated v2 info-hash. A registration is used
+     * once: the first storage it applies to takes it, and a later addition
+     * of the same torrent gets the default policy unless it is registered
+     * again.
      */
     public void setPolicy(InfoHash ih, MemoryPolicy policy) {
         int p = policy.ordinal();
@@ -154,6 +157,25 @@ public final class MemoryStoragePool implements AutoCloseable {
         long pool = acquire();
         try {
             libtorrent_ext.memoryPoolSetLimit(pool, bytes);
+        } finally {
+            release();
+        }
+    }
+
+    /**
+     * The number of bytes one torrent may hold, -1 for no limit of its own
+     * (the default). A piece of the torrent starts in memory only while the
+     * pool holds less than its limit and the torrent less than this one;
+     * at the limit it goes to the file, or is declined under
+     * {@link MemoryPolicy#MEMORY_ONLY}. Like the pool's limit it is checked
+     * when a piece starts. A torrent without metadata gets it once it has its
+     * storage.
+     */
+    public void setLimit(TorrentHandle th, long bytes) {
+        torrent_handle h = th.swig();
+        long pool = acquire();
+        try {
+            libtorrent_ext.memoryPoolSetLimit(pool, h, bytes);
         } finally {
             release();
         }
@@ -367,6 +389,37 @@ public final class MemoryStoragePool implements AutoCloseable {
             return libtorrent_ext.memoryPoolSpilledPieces(pool);
         } finally {
             release();
+        }
+    }
+
+    /**
+     * @return pieces declined under {@link MemoryPolicy#MEMORY_ONLY}, of
+     * removed torrents too. A piece counts once per decline, however many of
+     * its blocks arrived
+     */
+    public long declinedPieces() {
+        long pool = acquire();
+        try {
+            return libtorrent_ext.memoryPoolDeclinedPieces(pool);
+        } finally {
+            release();
+        }
+    }
+
+    /**
+     * Whether the loaded native library has {@link MemoryPolicy#MEMORY_ONLY}:
+     * a piece over the limit is declined, without a write to the file, a disk
+     * error or blame for the peers. False for a native library from before it.
+     */
+    public static boolean memoryOnlySupported() {
+        return memoryOnlySupported(libtorrent_ext::memoryOnlySupported);
+    }
+
+    static boolean memoryOnlySupported(java.util.function.BooleanSupplier nativeCall) {
+        try {
+            return nativeCall.getAsBoolean();
+        } catch (UnsatisfiedLinkError e) {
+            return false;
         }
     }
 

@@ -54,6 +54,61 @@ public class MemoryStoragePoolTest {
     public TemporaryFolder folder = new TemporaryFolder();
 
     @Test
+    public void testMemoryOnlyOrdinalIsTheNativeValue() {
+        // the native memory_policy: file 0, memory 1, memory_only 2
+        assertEquals(2, MemoryPolicy.MEMORY_ONLY.ordinal());
+        assertTrue(MemoryStoragePool.memoryOnlySupported());
+    }
+
+    @Test
+    public void testMemoryOnlySupportedIsFalseForAnOlderNativeLibrary() {
+        assertFalse(MemoryStoragePool.memoryOnlySupported(() -> {
+            throw new UnsatisfiedLinkError("memory_only_supported");
+        }));
+    }
+
+    @Test
+    public void testMemoryOnlyPieceOverTheTorrentLimitIsDeclined() throws Exception {
+        byte[] content = new byte[(NUM_PIECES - 1) * PIECE + LAST];
+        new Random(11).nextBytes(content);
+        TorrentInfo ti = makeTorrent("source", content);
+
+        MemoryStoragePool pool = new MemoryStoragePool();
+        pool.setLimit(64L * 1024 * 1024);
+        pool.setPolicy(ti.infoHashes(), MemoryPolicy.MEMORY_ONLY);
+
+        BlockingQueue<AddTorrentParams> resume = new LinkedBlockingQueue<>();
+        SessionManager s = startSession(pool, resume);
+        try {
+            File dir = folder.newFolder("download");
+            s.download(ti, dir);
+            TorrentHandle th = waitForDownloading(s, ti);
+            pool.setLimit(th, PIECE);
+
+            th.addPiece(0, Arrays.copyOfRange(content, 0, PIECE));
+            long end = System.currentTimeMillis() + TIMEOUT_MS;
+            while (System.currentTimeMillis() < end && !pool.inMemory(th).complete().getBit(0)) {
+                Thread.sleep(50);
+            }
+            assertTrue("piece 0 in memory", pool.inMemory(th).complete().getBit(0));
+
+            // the torrent holds its limit: piece 1 is declined
+            th.addPiece(1, Arrays.copyOfRange(content, PIECE, 2 * PIECE));
+            end = System.currentTimeMillis() + TIMEOUT_MS;
+            while (System.currentTimeMillis() < end && pool.declinedPieces() < 1) {
+                Thread.sleep(50);
+            }
+            assertEquals(1, pool.declinedPieces());
+            assertEquals(PIECE, pool.heldBytes(th).complete());
+            assertFalse(th.havePiece(1));
+            String[] files = dir.list();
+            assertTrue("nothing in the save path", files == null || files.length == 0);
+        } finally {
+            s.stop();
+        }
+    }
+
+    @Test
     public void testPiecesInMemoryAreReadForgottenAndFilteredFromResumeData() throws Exception {
         byte[] content = new byte[(NUM_PIECES - 1) * PIECE + LAST];
         new Random(7).nextBytes(content);

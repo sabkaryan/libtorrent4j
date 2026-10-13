@@ -90,6 +90,22 @@ public final class libtorrent_ext {
         memory_pool_set_limit(pool, bytes);
     }
 
+    public static void memoryPoolSetLimit(long pool, torrent_handle h, long bytes) {
+        memory_pool_set_torrent_limit(pool, torrent_handle.getCPtr(h), h, bytes);
+    }
+
+    public static long memoryPoolDeclinedPieces(long pool) {
+        return memory_pool_declined_pieces(pool);
+    }
+
+    /**
+     * True: the native library has {@code memory_policy::memory_only}. A native
+     * library from before it throws {@link UnsatisfiedLinkError}.
+     */
+    public static boolean memoryOnlySupported() {
+        return memory_only_supported();
+    }
+
     public static void memoryPoolPersist(long pool, torrent_handle h, int[] pieces) {
         memory_pool_persist(pool, torrent_handle.getCPtr(h), h, pieces);
     }
@@ -173,6 +189,12 @@ public final class libtorrent_ext {
                                                       int policy, int[] files);
 
     private static native void memory_pool_set_limit(long pool, long bytes);
+
+    private static native void memory_pool_set_torrent_limit(long pool, long handlePtr, torrent_handle h, long bytes);
+
+    private static native long memory_pool_declined_pieces(long pool);
+
+    private static native boolean memory_only_supported();
 
     private static native void memory_pool_persist(long pool, long h, torrent_handle hRef, int[] pieces);
 
