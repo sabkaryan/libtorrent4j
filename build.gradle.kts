@@ -18,7 +18,7 @@ group = "org.libtorrent4j"
 // build number for the same libtorrent. Numeric only: Gradle orders a string
 // part ("-fp.1") below the base version. What keeps an upstream build out of
 // a consumer is its repository filter (exclusiveContent), not this number.
-version = "2.1.2-1003"
+version = "2.1.2-1004"
 
 java {
     // using java 8 for android compatibility
