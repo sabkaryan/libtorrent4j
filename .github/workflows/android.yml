@@ -13,7 +13,7 @@ env:
   BOOST_VERSION: "1_89_0"
   NDK_VERSION: "r28c"
   OPENSSL_VERSION: "3.5.2"
-  OPENSSL_NO_OPTS: "no-deprecated no-shared no-makedepend no-static-engine no-stdio no-posix-io no-threads no-ui-console no-zlib no-zlib-dynamic -fno-strict-aliasing -fvisibility=hidden -O3"
+  OPENSSL_NO_OPTS: "no-deprecated no-shared no-makedepend no-static-engine no-stdio no-posix-io no-ui-console no-zlib no-zlib-dynamic -fno-strict-aliasing -fvisibility=hidden -O3"
 
 jobs:
 
