@@ -330,6 +330,30 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1held_1bytes(
     return guarded(env, jlong(0), [&] { return jlong(pool_of(pool).held_bytes()); });
 }
 
+// sets[0..4] are the (SWIG) bitfields ram complete, ram partial, transfer,
+// file ready and file pending; numbers[0..6] receive held complete, held
+// partial, pending persist, reserved, pool held, pool reserved and pool
+// retired. Returns the status. Waits for the network thread
+JNIEXPORT jint JNICALL
+Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1snapshot(
+    JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jlongArray sets, jlongArray numbers)
+{
+    return guarded(env, jint(0), [&] {
+        auto s = pool_of(pool).snapshot(*handle_of(handle_ptr));
+        jlong p[5];
+        env->GetLongArrayRegion(sets, 0, 5, p);
+        *swig_ptr<libtorrent::bitfield>(p[0]) = std::move(s.ram_complete);
+        *swig_ptr<libtorrent::bitfield>(p[1]) = std::move(s.ram_partial);
+        *swig_ptr<libtorrent::bitfield>(p[2]) = std::move(s.transfer);
+        *swig_ptr<libtorrent::bitfield>(p[3]) = std::move(s.file_ready);
+        *swig_ptr<libtorrent::bitfield>(p[4]) = std::move(s.file_pending);
+        jlong const v[7] = { jlong(s.held_complete), jlong(s.held_partial), jlong(s.pending_persist)
+            , jlong(s.reserved), jlong(s.pool_held), jlong(s.pool_reserved), jlong(s.pool_retired) };
+        env->SetLongArrayRegion(numbers, 0, 7, v);
+        return jint(s.status);
+    });
+}
+
 JNIEXPORT jlong JNICALL
 Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1retired_1bytes(
     JNIEnv* env, jclass, jlong pool)

@@ -21,8 +21,9 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * has no metadata yet waits for it and applies once its storage is created.
  * <p>
  * All calls are safe from any thread. Only
- * {@link #forgetPiece(TorrentHandle, int)} waits for the network thread; every
- * other call works under the pool's mutex and returns at once.
+ * {@link #forgetPiece(TorrentHandle, int)} and {@link #snapshot(TorrentHandle)}
+ * wait for the network thread; every other call works under the pool's mutex
+ * and returns at once.
  * <p>
  * {@link #close()} releases this object's reference to the native pool; a
  * session made with it keeps its own, so closing it while a session runs is
@@ -40,6 +41,12 @@ public final class MemoryStoragePool implements AutoCloseable {
      * Returned by calls naming a torrent that has no storage in the pool.
      */
     public static final int NOT_MANAGED = -2;
+
+    /**
+     * The status of {@link #snapshot(TorrentHandle)} for a handle without a
+     * torrent object (never had one, or its torrent was removed and released).
+     */
+    public static final int INVALID_HANDLE = -3;
 
     private static final int BLOCK_SIZE = 16 * 1024;
 
@@ -352,6 +359,44 @@ public final class MemoryStoragePool implements AutoCloseable {
             release();
         }
         return new MemoryHeld(held[0], held[1]);
+    }
+
+    /**
+     * Where the pieces of the handle's torrent are and the bytes the pool
+     * holds, all at one moment: one task on the network thread of the
+     * handle's session reads which pieces the torrent has, then the pool's
+     * state under its mutex. Nothing that changes the place of a piece, its
+     * "in file" flag or the torrent's pieces runs between the two reads.
+     * <p>
+     * Only the storage of the handle's torrent is read, never one found by
+     * info-hash nor what the pool keeps of removed torrents. The call only
+     * reads: it reads no piece data, issues no disk job and changes nothing.
+     * <p>
+     * This call waits for the network thread and must not be called from it,
+     * as {@link #forgetPiece(TorrentHandle, int)}. It visits every piece of
+     * the torrent under the pool's mutex.
+     *
+     * @return the snapshot; its status is 0, {@link #NOT_MANAGED} or
+     * {@link #INVALID_HANDLE}
+     */
+    public MemorySnapshot snapshot(TorrentHandle th) {
+        torrent_handle h = th.swig();
+        bitfield[] sets = new bitfield[5];
+        for (int i = 0; i < sets.length; i++) {
+            sets[i] = new bitfield();
+        }
+        long[] numbers = new long[7];
+        int status;
+        long pool = acquire();
+        try {
+            status = libtorrent_ext.memoryPoolSnapshot(pool, h, sets, numbers);
+        } finally {
+            release();
+        }
+        return new MemorySnapshot(status,
+                new PieceIndexBitfield(sets[0]), new PieceIndexBitfield(sets[1]),
+                new PieceIndexBitfield(sets[2]), new PieceIndexBitfield(sets[3]),
+                new PieceIndexBitfield(sets[4]), numbers);
     }
 
     /**

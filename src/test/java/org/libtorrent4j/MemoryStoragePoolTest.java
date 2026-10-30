@@ -253,6 +253,81 @@ public class MemoryStoragePoolTest {
         }
     }
 
+    // the snapshot through JNI: the five sets, the numbers of the same moment
+    // and the statuses of a removed torrent and a closed pool
+    @Test
+    public void testSnapshotSetsNumbersAndStatuses() throws Exception {
+        byte[] content = new byte[(NUM_PIECES - 1) * PIECE + LAST];
+        new Random(13).nextBytes(content);
+        TorrentInfo ti = makeTorrent("source", content);
+
+        MemoryStoragePool pool = new MemoryStoragePool();
+        pool.setDefaultPolicy(MemoryPolicy.MEMORY);
+        pool.setLimit(64L * 1024 * 1024);
+
+        BlockingQueue<AddTorrentParams> resume = new LinkedBlockingQueue<>();
+        SessionManager s = startSession(pool, resume);
+        try {
+            s.download(ti, folder.newFolder("download"));
+            TorrentHandle th = waitForDownloading(s, ti);
+
+            // piece 2 starts in the file, 0 and 1 in memory, 3 is not added
+            pool.persist(th, 2);
+            for (int p = 0; p < 3; p++) {
+                th.addPiece(p, piece(content, p));
+            }
+            waitFor("piece 2 ready in the file, 0 and 1 in memory", () -> {
+                MemorySnapshot m = pool.snapshot(th);
+                return m.fileReady().getBit(2) && m.ramComplete().getBit(0) && m.ramComplete().getBit(1);
+            });
+
+            MemorySnapshot m = pool.snapshot(th);
+            assertEquals(0, m.status());
+            PieceIndexBitfield[] sets = {m.ramComplete(), m.ramPartial(), m.transfer(), m.fileReady(),
+                    m.filePending()};
+            for (int p = 0; p < NUM_PIECES; p++) {
+                int in = 0;
+                for (PieceIndexBitfield b : sets) {
+                    assertEquals(NUM_PIECES, b.size());
+                    if (b.getBit(p)) in++;
+                }
+                assertTrue("piece " + p + " in at most one set", in <= 1);
+            }
+            assertEquals(2, m.ramComplete().count());
+            assertEquals(1, m.fileReady().count());
+            assertEquals(0, m.ramPartial().count() + m.transfer().count() + m.filePending().count());
+            assertEquals(2L * PIECE, m.heldComplete());
+            assertEquals(pool.heldBytes(th).complete(), m.heldComplete());
+            assertEquals(0, m.heldPartial());
+            assertEquals(0, m.pendingPersist());
+            assertTrue(m.reserved() >= m.heldComplete());
+            assertEquals(pool.heldBytes(), m.poolHeld());
+            assertTrue(m.poolReserved() >= m.reserved());
+            assertEquals(pool.retiredBytes(), m.poolRetired());
+
+            s.remove(th);
+            waitFor("removed", () -> pool.snapshot(th).status() != 0);
+            MemorySnapshot removed = pool.snapshot(th);
+            assertTrue(removed.status() == MemoryStoragePool.NOT_MANAGED
+                    || removed.status() == MemoryStoragePool.INVALID_HANDLE);
+            assertEquals(0, removed.ramComplete().size());
+            assertEquals(0, removed.fileReady().size());
+            assertEquals(0, removed.heldComplete());
+            assertEquals(0, removed.poolHeld());
+
+            pool.close();
+            try {
+                pool.snapshot(th);
+                fail("snapshot after close");
+            } catch (IllegalStateException expected) {
+                // expected
+            }
+        } finally {
+            pool.close();
+            s.stop();
+        }
+    }
+
     // every other call once: a registration by info-hash, claims by handle,
     // the owner's persist set, dropping an owner, forgetting a record and the
     // counters

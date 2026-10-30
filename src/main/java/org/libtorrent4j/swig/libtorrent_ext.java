@@ -142,6 +142,19 @@ public final class libtorrent_ext {
                 bitfield.getCPtr(complete), complete, bitfield.getCPtr(partial), partial);
     }
 
+    /**
+     * Fills the five bitfields (ram complete, ram partial, transfer, file ready, file pending) and
+     * numbers[0..6] (held complete, held partial, pending persist, reserved, pool held, pool reserved,
+     * pool retired). Returns the status. Waits for the network thread.
+     */
+    public static int memoryPoolSnapshot(long pool, torrent_handle h, bitfield[] sets, long[] numbers) {
+        long[] ptrs = new long[sets.length];
+        for (int i = 0; i < sets.length; i++) {
+            ptrs[i] = bitfield.getCPtr(sets[i]);
+        }
+        return memory_pool_snapshot(pool, torrent_handle.getCPtr(h), h, ptrs, numbers);
+    }
+
     /** held[0] complete, held[1] partial. */
     public static void memoryPoolHeldBytes(long pool, torrent_handle h, long[] held) {
         memory_pool_held_bytes_of(pool, torrent_handle.getCPtr(h), h, held);
@@ -216,6 +229,9 @@ public final class libtorrent_ext {
     private static native void memory_pool_in_memory(long pool, long h, torrent_handle hRef,
                                                      long complete, bitfield completeRef,
                                                      long partial, bitfield partialRef);
+
+    private static native int memory_pool_snapshot(long pool, long h, torrent_handle hRef, long[] sets,
+                                                   long[] numbers);
 
     private static native void memory_pool_held_bytes_of(long pool, long h, torrent_handle hRef, long[] held);
 
