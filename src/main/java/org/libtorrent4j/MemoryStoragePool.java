@@ -381,22 +381,12 @@ public final class MemoryStoragePool implements AutoCloseable {
      */
     public MemorySnapshot snapshot(TorrentHandle th) {
         torrent_handle h = th.swig();
-        bitfield[] sets = new bitfield[5];
-        for (int i = 0; i < sets.length; i++) {
-            sets[i] = new bitfield();
-        }
-        long[] numbers = new long[7];
-        int status;
         long pool = acquire();
         try {
-            status = libtorrent_ext.memoryPoolSnapshot(pool, h, sets, numbers);
+            return MemorySnapshot.read((sets, numbers) -> libtorrent_ext.memoryPoolSnapshot(pool, h, sets, numbers));
         } finally {
             release();
         }
-        return new MemorySnapshot(status,
-                new PieceIndexBitfield(sets[0]), new PieceIndexBitfield(sets[1]),
-                new PieceIndexBitfield(sets[2]), new PieceIndexBitfield(sets[3]),
-                new PieceIndexBitfield(sets[4]), numbers);
     }
 
     /**

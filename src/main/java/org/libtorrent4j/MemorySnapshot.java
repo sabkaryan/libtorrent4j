@@ -1,5 +1,7 @@
 package org.libtorrent4j;
 
+import org.libtorrent4j.swig.bitfield;
+
 /**
  * Where the pieces of one torrent are and the bytes the pool holds, all taken
  * at one moment, from {@link MemoryStoragePool#snapshot(TorrentHandle)}. A
@@ -17,16 +19,29 @@ public final class MemorySnapshot {
     private final PieceIndexBitfield filePending;
     private final long[] numbers;
 
-    MemorySnapshot(int status, PieceIndexBitfield ramComplete, PieceIndexBitfield ramPartial,
-                   PieceIndexBitfield transfer, PieceIndexBitfield fileReady,
-                   PieceIndexBitfield filePending, long[] numbers) {
+    // fills the five bitfields and the numbers, returns the status
+    interface Source {
+        int fill(bitfield[] sets, long[] numbers);
+    }
+
+    private MemorySnapshot(int status, bitfield[] sets, long[] numbers) {
         this.status = status;
-        this.ramComplete = ramComplete;
-        this.ramPartial = ramPartial;
-        this.transfer = transfer;
-        this.fileReady = fileReady;
-        this.filePending = filePending;
+        this.ramComplete = new PieceIndexBitfield(sets[0]);
+        this.ramPartial = new PieceIndexBitfield(sets[1]);
+        this.transfer = new PieceIndexBitfield(sets[2]);
+        this.fileReady = new PieceIndexBitfield(sets[3]);
+        this.filePending = new PieceIndexBitfield(sets[4]);
         this.numbers = numbers;
+    }
+
+    static MemorySnapshot read(Source source) {
+        bitfield[] sets = new bitfield[5];
+        for (int i = 0; i < sets.length; i++) {
+            sets[i] = new bitfield();
+        }
+        long[] numbers = new long[7];
+        int status = source.fill(sets, numbers);
+        return new MemorySnapshot(status, sets, numbers);
     }
 
     /**

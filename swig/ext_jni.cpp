@@ -37,28 +37,69 @@ T* swig_ptr(jlong ptr)
     return *reinterpret_cast<T**>(&ptr);
 }
 
-libtorrent::memory_storage_pool& pool_of(jlong ptr)
+// thrown inside guarded(): a JNI call left a Java exception pending, the
+// entry point returns at once
+struct java_pending {};
+// thrown inside guarded(): a null (or deleted) object or array argument,
+// a NullPointerException
+struct null_argument { char const* what; };
+// thrown inside guarded(): an array too short or a range outside it, an
+// IllegalArgumentException
+struct bad_argument { char const* what; };
+
+// the object behind a SWIG pointer, which is 0 for null or a deleted object
+template <typename T>
+T& ref_of(jlong ptr, char const* what)
 {
-    return **swig_ptr<std::shared_ptr<libtorrent::memory_storage_pool>>(ptr);
+    T* const p = swig_ptr<T>(ptr);
+    if (p == nullptr) throw null_argument{what};
+    return *p;
 }
 
-void throw_runtime(JNIEnv* env, char const* what)
+libtorrent::torrent_handle const& handle_ref(jlong ptr)
 {
-    jclass const c = env->FindClass("java/lang/RuntimeException");
+    return ref_of<libtorrent::torrent_handle const>(ptr, "torrent_handle");
+}
+
+libtorrent::memory_storage_pool& pool_of(jlong ptr)
+{
+    return *ref_of<std::shared_ptr<libtorrent::memory_storage_pool>>(ptr, "memory pool");
+}
+
+// the array exists and has at least n elements
+void check_array(JNIEnv* env, jarray a, jsize n, char const* what)
+{
+    if (a == nullptr) throw null_argument{what};
+    if (env->GetArrayLength(a) < n) throw bad_argument{what};
+}
+
+void check_jni(JNIEnv* env)
+{
+    if (env->ExceptionCheck()) throw java_pending{};
+}
+
+void throw_java(JNIEnv* env, char const* cls, char const* what)
+{
+    jclass const c = env->FindClass(cls);
     if (c != nullptr) env->ThrowNew(c, what);
 }
 
-// runs f, turning a C++ exception into a Java RuntimeException (a C++
-// exception must not cross the JNI frame). `fallback` is returned then
+// runs f, turning a C++ exception into a Java exception (a C++ exception
+// must not cross the JNI frame). `fallback` is returned then
 template <typename R, typename F>
 R guarded(JNIEnv* env, R const fallback, F const& f)
 {
     try {
         return f();
+    } catch (java_pending const&) {
+    } catch (null_argument const& e) {
+        throw_java(env, "java/lang/NullPointerException", e.what);
+    } catch (bad_argument const& e) {
+        throw_java(env, "java/lang/IllegalArgumentException", e.what);
     } catch (std::exception const& e) {
-        throw_runtime(env, e.what());
+        throw_java(env, "java/lang/RuntimeException", e.what());
     } catch (...) {
-        throw_runtime(env, "unknown C++ exception");
+        throw_java(env, "java/lang/RuntimeException", "unknown C++ exception");
     }
     return fallback;
 }
@@ -71,6 +112,7 @@ std::vector<Index> indices_of(JNIEnv* env, jintArray a)
     jsize const n = env->GetArrayLength(a);
     std::vector<jint> v(static_cast<std::size_t>(n));
     if (n > 0) env->GetIntArrayRegion(a, 0, n, v.data());
+    check_jni(env);
     ret.reserve(v.size());
     for (jint const i : v) ret.push_back(Index(i));
     return ret;
@@ -111,9 +153,11 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_forget_1piece(
 }
 
 // ---- memory storage pool (libtorrent/memory_disk_io.hpp) ----------------
-// Java side: org.libtorrent4j.MemoryStoragePool. The Java side checks the
-// arguments it can (a closed pool, null references, array bounds) before it
-// calls these.
+// Java side: org.libtorrent4j.MemoryStoragePool, which checks a closed pool
+// and the bounds of read(). These check every argument again: a null or
+// deleted object or array throws NullPointerException, an array too short
+// IllegalArgumentException, and nothing is dereferenced after a JNI call
+// left an exception pending.
 
 JNIEXPORT jlong JNICALL
 Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1new(
@@ -142,8 +186,8 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1set_1disk_1io(
     JNIEnv* env, jclass, jlong pool, jlong params_ptr, jobject)
 {
     guarded(env, 0, [&] {
-        auto const& sp = *swig_ptr<std::shared_ptr<libtorrent::memory_storage_pool>>(pool);
-        swig_ptr<libtorrent::session_params>(params_ptr)->disk_io_constructor
+        auto const& sp = ref_of<std::shared_ptr<libtorrent::memory_storage_pool>>(pool, "memory pool");
+        ref_of<libtorrent::session_params>(params_ptr, "session_params").disk_io_constructor
             = libtorrent::memory_disk_io_constructor(sp);
         return 0;
     });
@@ -161,7 +205,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1set_1policy_1info_1hash
     JNIEnv* env, jclass, jlong pool, jlong ih_ptr, jobject, jint policy)
 {
     guarded(env, 0, [&] {
-        pool_of(pool).set_policy(*swig_ptr<libtorrent::info_hash_t>(ih_ptr), policy_of(policy));
+        pool_of(pool).set_policy(ref_of<libtorrent::info_hash_t>(ih_ptr, "info_hash_t"), policy_of(policy));
         return 0;
     });
 }
@@ -173,7 +217,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1set_1policy(
 {
     guarded(env, 0, [&] {
         auto const f = indices_of<libtorrent::file_index_t>(env, files);
-        pool_of(pool).set_policy(*handle_of(handle_ptr)
+        pool_of(pool).set_policy(handle_ref(handle_ptr)
             , static_cast<libtorrent::memory_owner_t>(owner), policy_of(policy), f);
         return 0;
     });
@@ -191,7 +235,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1set_1torrent_1limit(
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jlong bytes)
 {
     guarded(env, 0, [&] {
-        pool_of(pool).set_limit(*handle_of(handle_ptr), std::int64_t(bytes));
+        pool_of(pool).set_limit(handle_ref(handle_ptr), std::int64_t(bytes));
         return 0;
     });
 }
@@ -217,7 +261,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1persist(
 {
     guarded(env, 0, [&] {
         auto const p = indices_of<libtorrent::piece_index_t>(env, pieces);
-        pool_of(pool).persist(*handle_of(handle_ptr), p);
+        pool_of(pool).persist(handle_ref(handle_ptr), p);
         return 0;
     });
 }
@@ -228,7 +272,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1set_1persist(
 {
     guarded(env, 0, [&] {
         auto const p = indices_of<libtorrent::piece_index_t>(env, pieces);
-        pool_of(pool).set_persist(*handle_of(handle_ptr)
+        pool_of(pool).set_persist(handle_ref(handle_ptr)
             , static_cast<libtorrent::memory_owner_t>(owner), p);
         return 0;
     });
@@ -239,7 +283,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1drop_1owner(
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jint owner)
 {
     guarded(env, 0, [&] {
-        pool_of(pool).drop_owner(*handle_of(handle_ptr), static_cast<libtorrent::memory_owner_t>(owner));
+        pool_of(pool).drop_owner(handle_ref(handle_ptr), static_cast<libtorrent::memory_owner_t>(owner));
         return 0;
     });
 }
@@ -249,7 +293,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1pending_1persist_1bytes
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject)
 {
     return guarded(env, jlong(0), [&] {
-        return jlong(pool_of(pool).pending_persist_bytes(*handle_of(handle_ptr)));
+        return jlong(pool_of(pool).pending_persist_bytes(handle_ref(handle_ptr)));
     });
 }
 
@@ -258,7 +302,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1persist_1failures(
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject)
 {
     return guarded(env, jint(0), [&] {
-        return jint(pool_of(pool).persist_failures(*handle_of(handle_ptr)));
+        return jint(pool_of(pool).persist_failures(handle_ref(handle_ptr)));
     });
 }
 
@@ -269,24 +313,28 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1forget_1piece(
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jint piece, jintArray place)
 {
     return guarded(env, jint(0), [&] {
-        auto const r = pool_of(pool).forget_piece(*handle_of(handle_ptr), libtorrent::piece_index_t(piece));
+        check_array(env, place, 1, "place");
+        auto const r = pool_of(pool).forget_piece(handle_ref(handle_ptr), libtorrent::piece_index_t(piece));
         jint const p = static_cast<jint>(r.place);
         env->SetIntArrayRegion(place, 0, 1, &p);
         return jint(r.code);
     });
 }
 
-// the caller (Java) has checked 0 <= dst_off, 0 <= len and
-// dst_off + len <= dst.length. The array is pinned only for the copy, under
-// the pool's mutex, with no other JNI call in between
+// 0 <= dst_off, 0 <= len and dst_off + len <= dst.length, or
+// IllegalArgumentException. The array is pinned only for the copy, under the
+// pool's mutex, with no other JNI call in between
 JNIEXPORT jint JNICALL
 Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1read(
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jint piece, jint offset
     , jbyteArray dst, jint dst_off, jint len)
 {
     return guarded(env, jint(0), [&] {
+        if (dst == nullptr) throw null_argument{"dst"};
+        if (dst_off < 0 || len < 0 || dst_off > env->GetArrayLength(dst) - len)
+            throw bad_argument{"dst range"};
         void* p = nullptr;
-        return jint(pool_of(pool).read(*handle_of(handle_ptr), libtorrent::piece_index_t(piece)
+        return jint(pool_of(pool).read(handle_ref(handle_ptr), libtorrent::piece_index_t(piece)
             , offset, len
             , [&]() -> char* {
                 p = env->GetPrimitiveArrayCritical(dst, nullptr);
@@ -303,9 +351,11 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1in_1memory(
     , jlong complete_ptr, jobject, jlong partial_ptr, jobject)
 {
     guarded(env, 0, [&] {
-        auto r = pool_of(pool).in_memory(*handle_of(handle_ptr));
-        *swig_ptr<libtorrent::bitfield>(complete_ptr) = std::move(r.complete);
-        *swig_ptr<libtorrent::bitfield>(partial_ptr) = std::move(r.partial);
+        auto& complete = ref_of<libtorrent::bitfield>(complete_ptr, "complete");
+        auto& partial = ref_of<libtorrent::bitfield>(partial_ptr, "partial");
+        auto r = pool_of(pool).in_memory(handle_ref(handle_ptr));
+        complete = std::move(r.complete);
+        partial = std::move(r.partial);
         return 0;
     });
 }
@@ -316,7 +366,8 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1held_1bytes_1of(
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jlongArray held)
 {
     guarded(env, 0, [&] {
-        auto const r = pool_of(pool).held_bytes(*handle_of(handle_ptr));
+        check_array(env, held, 2, "held");
+        auto const r = pool_of(pool).held_bytes(handle_ref(handle_ptr));
         jlong const v[2] = { jlong(r.complete), jlong(r.partial) };
         env->SetLongArrayRegion(held, 0, 2, v);
         return 0;
@@ -330,27 +381,86 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1held_1bytes(
     return guarded(env, jlong(0), [&] { return jlong(pool_of(pool).held_bytes()); });
 }
 
-// sets[0..4] are the (SWIG) bitfields ram complete, ram partial, transfer,
-// file ready and file pending; numbers[0..6] receive held complete, held
-// partial, pending persist, reserved, pool held, pool reserved and pool
-// retired. Returns the status. Waits for the network thread
+} // extern "C"
+
+namespace {
+
+// the (SWIG) bitfields of sets[0..4]: ram complete, ram partial, transfer,
+// file ready and file pending. Checked before the snapshot is taken
+struct snapshot_sets
+{
+    libtorrent::bitfield* b[5];
+};
+
+snapshot_sets sets_of(JNIEnv* env, jlongArray sets, jlongArray numbers)
+{
+    check_array(env, sets, 5, "sets");
+    check_array(env, numbers, 7, "numbers");
+    jlong p[5];
+    env->GetLongArrayRegion(sets, 0, 5, p);
+    check_jni(env);
+    snapshot_sets ret;
+    for (int i = 0; i < 5; ++i) ret.b[i] = &ref_of<libtorrent::bitfield>(p[i], "sets element");
+    return ret;
+}
+
+// numbers[0..6] receive held complete, held partial, pending persist,
+// reserved, pool held, pool reserved and pool retired. Returns the status
+jint write_snapshot(JNIEnv* env, libtorrent::memory_snapshot& s, snapshot_sets const& out
+    , jlongArray numbers)
+{
+    *out.b[0] = std::move(s.ram_complete);
+    *out.b[1] = std::move(s.ram_partial);
+    *out.b[2] = std::move(s.transfer);
+    *out.b[3] = std::move(s.file_ready);
+    *out.b[4] = std::move(s.file_pending);
+    jlong const v[7] = { jlong(s.held_complete), jlong(s.held_partial), jlong(s.pending_persist)
+        , jlong(s.reserved), jlong(s.pool_held), jlong(s.pool_reserved), jlong(s.pool_retired) };
+    env->SetLongArrayRegion(numbers, 0, 7, v);
+    check_jni(env);
+    return jint(s.status);
+}
+
+} // anonymous namespace
+
+extern "C" {
+
+// see sets_of() and write_snapshot(). Waits for the network thread
 JNIEXPORT jint JNICALL
 Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1snapshot(
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jlongArray sets, jlongArray numbers)
 {
     return guarded(env, jint(0), [&] {
-        auto s = pool_of(pool).snapshot(*handle_of(handle_ptr));
-        jlong p[5];
-        env->GetLongArrayRegion(sets, 0, 5, p);
-        *swig_ptr<libtorrent::bitfield>(p[0]) = std::move(s.ram_complete);
-        *swig_ptr<libtorrent::bitfield>(p[1]) = std::move(s.ram_partial);
-        *swig_ptr<libtorrent::bitfield>(p[2]) = std::move(s.transfer);
-        *swig_ptr<libtorrent::bitfield>(p[3]) = std::move(s.file_ready);
-        *swig_ptr<libtorrent::bitfield>(p[4]) = std::move(s.file_pending);
-        jlong const v[7] = { jlong(s.held_complete), jlong(s.held_partial), jlong(s.pending_persist)
-            , jlong(s.reserved), jlong(s.pool_held), jlong(s.pool_reserved), jlong(s.pool_retired) };
-        env->SetLongArrayRegion(numbers, 0, 7, v);
-        return jint(s.status);
+        snapshot_sets const out = sets_of(env, sets, numbers);
+        auto s = pool_of(pool).snapshot(handle_ref(handle_ptr));
+        return write_snapshot(env, s, out, numbers);
+    });
+}
+
+// a made-up snapshot through the same conversion, for the binding's tests:
+// status 0, five pieces, piece i in set i only, numbers 101..107
+JNIEXPORT jint JNICALL
+Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1snapshot_1for_1test(
+    JNIEnv* env, jclass, jlongArray sets, jlongArray numbers)
+{
+    return guarded(env, jint(0), [&] {
+        snapshot_sets const out = sets_of(env, sets, numbers);
+        libtorrent::memory_snapshot s;
+        std::vector<libtorrent::typed_bitfield<libtorrent::piece_index_t>*> const b{&s.ram_complete
+            , &s.ram_partial, &s.transfer, &s.file_ready, &s.file_pending};
+        for (int i = 0; i < 5; ++i)
+        {
+            b[std::size_t(i)]->resize(5, false);
+            b[std::size_t(i)]->set_bit(libtorrent::piece_index_t(i));
+        }
+        s.held_complete = 101;
+        s.held_partial = 102;
+        s.pending_persist = 103;
+        s.reserved = 104;
+        s.pool_held = 105;
+        s.pool_reserved = 106;
+        s.pool_retired = 107;
+        return write_snapshot(env, s, out, numbers);
     });
 }
 
@@ -380,7 +490,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1filter_1resume_1of(
     JNIEnv* env, jclass, jlong pool, jlong handle_ptr, jobject, jlong atp_ptr, jobject)
 {
     guarded(env, 0, [&] {
-        pool_of(pool).filter_resume(*handle_of(handle_ptr), *swig_ptr<libtorrent::add_torrent_params>(atp_ptr));
+        pool_of(pool).filter_resume(handle_ref(handle_ptr), ref_of<libtorrent::add_torrent_params>(atp_ptr, "add_torrent_params"));
         return 0;
     });
 }
@@ -390,7 +500,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1filter_1resume(
     JNIEnv* env, jclass, jlong pool, jlong atp_ptr, jobject)
 {
     guarded(env, 0, [&] {
-        pool_of(pool).filter_resume(*swig_ptr<libtorrent::add_torrent_params>(atp_ptr));
+        pool_of(pool).filter_resume(ref_of<libtorrent::add_torrent_params>(atp_ptr, "add_torrent_params"));
         return 0;
     });
 }
@@ -400,7 +510,7 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1forget_1record(
     JNIEnv* env, jclass, jlong pool, jlong ih_ptr, jobject)
 {
     guarded(env, 0, [&] {
-        pool_of(pool).forget_record(*swig_ptr<libtorrent::info_hash_t>(ih_ptr));
+        pool_of(pool).forget_record(ref_of<libtorrent::info_hash_t>(ih_ptr, "info_hash_t"));
         return 0;
     });
 }

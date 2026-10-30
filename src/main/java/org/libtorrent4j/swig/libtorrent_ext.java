@@ -131,7 +131,7 @@ public final class libtorrent_ext {
         return memory_pool_forget_piece(pool, torrent_handle.getCPtr(h), h, piece, place);
     }
 
-    /** The caller has checked the bounds of dst, dstOff and len. */
+    /** A null dst or a range outside it throws (NullPointerException, IllegalArgumentException). */
     public static int memoryPoolRead(long pool, torrent_handle h, int piece, int offset,
                                      byte[] dst, int dstOff, int len) {
         return memory_pool_read(pool, torrent_handle.getCPtr(h), h, piece, offset, dst, dstOff, len);
@@ -146,13 +146,41 @@ public final class libtorrent_ext {
      * Fills the five bitfields (ram complete, ram partial, transfer, file ready, file pending) and
      * numbers[0..6] (held complete, held partial, pending persist, reserved, pool held, pool reserved,
      * pool retired). Returns the status. Waits for the network thread.
+     *
+     * @throws NullPointerException     for a null handle, array or element
+     * @throws IllegalArgumentException unless sets has 5 elements and numbers at least 7
      */
     public static int memoryPoolSnapshot(long pool, torrent_handle h, bitfield[] sets, long[] numbers) {
+        long[] ptrs = snapshotSets(sets, numbers);
+        return memory_pool_snapshot(pool, torrent_handle.getCPtr(requireNonNull(h, "h")), h, ptrs, numbers);
+    }
+
+    /**
+     * As {@link #memoryPoolSnapshot}, for a made-up snapshot: status 0, five pieces, piece i in set i
+     * only, numbers 101..107. For the tests of the binding.
+     */
+    public static int memorySnapshotForTest(bitfield[] sets, long[] numbers) {
+        return memory_snapshot_for_test(snapshotSets(sets, numbers), numbers);
+    }
+
+    private static long[] snapshotSets(bitfield[] sets, long[] numbers) {
+        requireNonNull(sets, "sets");
+        requireNonNull(numbers, "numbers");
+        if (sets.length != 5 || numbers.length < 7) {
+            throw new IllegalArgumentException("sets: " + sets.length + ", numbers: " + numbers.length);
+        }
         long[] ptrs = new long[sets.length];
         for (int i = 0; i < sets.length; i++) {
-            ptrs[i] = bitfield.getCPtr(sets[i]);
+            ptrs[i] = bitfield.getCPtr(requireNonNull(sets[i], "sets element"));
         }
-        return memory_pool_snapshot(pool, torrent_handle.getCPtr(h), h, ptrs, numbers);
+        return ptrs;
+    }
+
+    private static <T> T requireNonNull(T o, String what) {
+        if (o == null) {
+            throw new NullPointerException(what);
+        }
+        return o;
     }
 
     /** held[0] complete, held[1] partial. */
@@ -232,6 +260,8 @@ public final class libtorrent_ext {
 
     private static native int memory_pool_snapshot(long pool, long h, torrent_handle hRef, long[] sets,
                                                    long[] numbers);
+
+    private static native int memory_snapshot_for_test(long[] sets, long[] numbers);
 
     private static native void memory_pool_held_bytes_of(long pool, long h, torrent_handle hRef, long[] held);
 
