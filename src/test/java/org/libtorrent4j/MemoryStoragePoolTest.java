@@ -1,5 +1,6 @@
 package org.libtorrent4j;
 
+import org.junit.Assume;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -16,7 +17,12 @@ import org.libtorrent4j.swig.error_code;
 import org.libtorrent4j.swig.info_hash_t;
 import org.libtorrent4j.swig.libtorrent_ext;
 import org.libtorrent4j.swig.list_files_listener;
+import org.libtorrent4j.swig.session;
+import org.libtorrent4j.swig.session_params;
 import org.libtorrent4j.swig.set_piece_hashes_listener;
+import org.libtorrent4j.swig.settings_pack;
+import org.libtorrent4j.swig.sha1_hash;
+import org.libtorrent4j.swig.torrent_handle;
 
 import java.io.File;
 import java.util.Arrays;
@@ -331,11 +337,38 @@ public class MemoryStoragePoolTest {
         }
     }
 
-    // a made-up snapshot through the same JNI conversion and Java reading as
-    // snapshot(): piece i only in set i, numbers 101..107, each in its own field
+    // the Java reading of snapshot(): sets[i] and numbers[i] each land in their
+    // own field (piece i only in set i, numbers 101..107)
+    @Test
+    public void testSnapshotReadingCarriesEverySetAndNumber() {
+        MemorySnapshot m = MemorySnapshot.read((sets, numbers) -> {
+            for (int i = 0; i < sets.length; i++) {
+                sets[i].resize(5, false);
+                sets[i].set_bit(i);
+            }
+            for (int i = 0; i < numbers.length; i++) {
+                numbers[i] = 101 + i;
+            }
+            return 0;
+        });
+        assertCarriesEverySetAndNumber(m);
+    }
+
+    // the same through the native conversion of snapshot(), with a made-up
+    // snapshot: only a native library built for the tests has its entry point
     @Test
     public void testSnapshotConversionCarriesEverySetAndNumber() {
-        MemorySnapshot m = MemorySnapshot.read(libtorrent_ext::memorySnapshotForTest);
+        MemorySnapshot m;
+        try {
+            m = MemorySnapshot.read(libtorrent_ext::memorySnapshotForTest);
+        } catch (UnsatisfiedLinkError e) {
+            Assume.assumeNoException("a native library without test entry points", e);
+            return;
+        }
+        assertCarriesEverySetAndNumber(m);
+    }
+
+    private static void assertCarriesEverySetAndNumber(MemorySnapshot m) {
         assertEquals(0, m.status());
         PieceIndexBitfield[] sets = {m.ramComplete(), m.ramPartial(), m.transfer(), m.fileReady(),
                 m.filePending()};
@@ -352,41 +385,52 @@ public class MemoryStoragePoolTest {
     }
 
     // a wrong argument of the JNI helpers throws, it does not bring the JVM
-    // down: checked in Java (snapshot) and again natively (every helper)
+    // down: checked in Java (snapshot) and again natively (every helper). The
+    // handle is a real one without a torrent
     @Test
     public void testHelpersRejectWrongArguments() {
+        settings_pack settings = new settings_pack();
+        settings.set_bool(settings_pack.bool_types.enable_dht.swigValue(), false);
+        settings.set_bool(settings_pack.bool_types.enable_lsd.swigValue(), false);
+        settings.set_str(settings_pack.string_types.listen_interfaces.swigValue(), "127.0.0.1:0");
+        session ses = new session(new session_params(settings));
         long pool = libtorrent_ext.memoryPoolNew(0);
         try {
-            expect(IllegalArgumentException.class, () -> libtorrent_ext.memorySnapshotForTest(new bitfield[0], new long[7]));
-            expect(IllegalArgumentException.class, () -> libtorrent_ext.memorySnapshotForTest(sets(), new long[6]));
+            torrent_handle h = ses.find_torrent(new sha1_hash());
+            assertEquals("a valid call with this handle", MemoryStoragePool.INVALID_HANDLE,
+                    libtorrent_ext.memoryPoolSnapshot(pool, h, sets(), new long[7]));
+
+            expect(IllegalArgumentException.class, () -> libtorrent_ext.memoryPoolSnapshot(pool, h, new bitfield[0], new long[7]));
+            expect(IllegalArgumentException.class, () -> libtorrent_ext.memoryPoolSnapshot(pool, h, sets(), new long[6]));
             bitfield[] oversized = new bitfield[6];
             for (int i = 0; i < oversized.length; i++) {
                 oversized[i] = new bitfield();
             }
-            expect(IllegalArgumentException.class, () -> libtorrent_ext.memorySnapshotForTest(oversized, new long[7]));
-            expect(NullPointerException.class, () -> libtorrent_ext.memorySnapshotForTest(null, new long[7]));
-            expect(NullPointerException.class, () -> libtorrent_ext.memorySnapshotForTest(sets(), null));
+            expect(IllegalArgumentException.class, () -> libtorrent_ext.memoryPoolSnapshot(pool, h, oversized, new long[7]));
+            expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolSnapshot(pool, h, null, new long[7]));
+            expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolSnapshot(pool, h, sets(), null));
             bitfield[] withNull = sets();
             withNull[2] = null;
-            expect(NullPointerException.class, () -> libtorrent_ext.memorySnapshotForTest(withNull, new long[7]));
+            expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolSnapshot(pool, h, withNull, new long[7]));
             bitfield[] withDeleted = sets();
             withDeleted[4].delete();
-            expect(NullPointerException.class, () -> libtorrent_ext.memorySnapshotForTest(withDeleted, new long[7]));
+            expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolSnapshot(pool, h, withDeleted, new long[7]));
             expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolSnapshot(pool, null, sets(), new long[7]));
 
             expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolPendingPersistBytes(pool, null));
             expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolHeldBytes(pool, null, new long[2]));
-            expect(IllegalArgumentException.class, () -> libtorrent_ext.memoryPoolHeldBytes(pool, null, new long[1]));
-            expect(IllegalArgumentException.class, () -> libtorrent_ext.memoryPoolForgetPiece(pool, null, 0, new int[0]));
-            expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolInMemory(pool, null, null, new bitfield()));
-            expect(IllegalArgumentException.class, () -> libtorrent_ext.memoryPoolRead(pool, null, 0, 0, new byte[4], 2, 4));
-            expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolRead(pool, null, 0, 0, null, 0, 0));
+            expect(IllegalArgumentException.class, () -> libtorrent_ext.memoryPoolHeldBytes(pool, h, new long[1]));
+            expect(IllegalArgumentException.class, () -> libtorrent_ext.memoryPoolForgetPiece(pool, h, 0, new int[0]));
+            expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolInMemory(pool, h, null, new bitfield()));
+            expect(IllegalArgumentException.class, () -> libtorrent_ext.memoryPoolRead(pool, h, 0, 0, new byte[4], 2, 4));
+            expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolRead(pool, h, 0, 0, null, 0, 0));
             expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolSetPolicy(pool, (info_hash_t) null, 1));
             expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolFilterResume(pool, (add_torrent_params) null));
             expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolSetDiskIo(pool, null));
             expect(NullPointerException.class, () -> libtorrent_ext.memoryPoolHeldBytes(0));
         } finally {
             libtorrent_ext.memoryPoolDelete(pool);
+            ses.delete();
         }
     }
 

@@ -437,8 +437,12 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1snapshot(
     });
 }
 
-// a made-up snapshot through the same conversion, for the binding's tests:
-// status 0, five pieces, piece i in set i only, numbers 101..107
+#if defined LT4J_TEST_EXPORTS
+
+// only in a library built for the binding's tests (b2 define=LT4J_TEST_EXPORTS):
+// release/publish.sh refuses a library that exports it. A made-up snapshot
+// through the same conversion: status 0, five pieces, piece i in set i only,
+// numbers 101..107
 JNIEXPORT jint JNICALL
 Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1snapshot_1for_1test(
     JNIEnv* env, jclass, jlongArray sets, jlongArray numbers)
@@ -463,6 +467,8 @@ Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1snapshot_1for_1test(
         return write_snapshot(env, s, out, numbers);
     });
 }
+
+#endif // LT4J_TEST_EXPORTS
 
 JNIEXPORT jlong JNICALL
 Java_org_libtorrent4j_swig_libtorrent_1ext_memory_1pool_1retired_1bytes(

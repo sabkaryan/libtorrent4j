@@ -157,7 +157,8 @@ public final class libtorrent_ext {
 
     /**
      * As {@link #memoryPoolSnapshot}, for a made-up snapshot: status 0, five pieces, piece i in set i
-     * only, numbers 101..107. For the tests of the binding.
+     * only, numbers 101..107. Only a native library built for the tests of the binding has it; any
+     * other throws UnsatisfiedLinkError.
      */
     public static int memorySnapshotForTest(bitfield[] sets, long[] numbers) {
         return memory_snapshot_for_test(snapshotSets(sets, numbers), numbers);
