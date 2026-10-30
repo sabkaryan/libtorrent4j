@@ -359,6 +359,11 @@ public class MemoryStoragePoolTest {
         try {
             expect(IllegalArgumentException.class, () -> libtorrent_ext.memorySnapshotForTest(new bitfield[0], new long[7]));
             expect(IllegalArgumentException.class, () -> libtorrent_ext.memorySnapshotForTest(sets(), new long[6]));
+            bitfield[] oversized = new bitfield[6];
+            for (int i = 0; i < oversized.length; i++) {
+                oversized[i] = new bitfield();
+            }
+            expect(IllegalArgumentException.class, () -> libtorrent_ext.memorySnapshotForTest(oversized, new long[7]));
             expect(NullPointerException.class, () -> libtorrent_ext.memorySnapshotForTest(null, new long[7]));
             expect(NullPointerException.class, () -> libtorrent_ext.memorySnapshotForTest(sets(), null));
             bitfield[] withNull = sets();
