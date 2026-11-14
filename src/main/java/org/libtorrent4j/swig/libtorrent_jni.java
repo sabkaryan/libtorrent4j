@@ -1617,6 +1617,8 @@ public class libtorrent_jni {
   public final static native void torrent_handle_connect_peer__SWIG_0(long jarg1, torrent_handle jarg1_, long jarg2, tcp_endpoint jarg2_, long jarg3, peer_source_flags_t jarg3_, long jarg4, pex_flags_t jarg4_);
   public final static native void torrent_handle_connect_peer__SWIG_1(long jarg1, torrent_handle jarg1_, long jarg2, tcp_endpoint jarg2_, long jarg3, peer_source_flags_t jarg3_);
   public final static native void torrent_handle_connect_peer__SWIG_2(long jarg1, torrent_handle jarg1_, long jarg2, tcp_endpoint jarg2_);
+  public final static native void torrent_handle_connect_peer__SWIG_3(long jarg1, torrent_handle jarg1_, long jarg2, sha256_hash jarg2_, long jarg3, peer_source_flags_t jarg3_);
+  public final static native void torrent_handle_connect_peer__SWIG_4(long jarg1, torrent_handle jarg1_, long jarg2, sha256_hash jarg2_);
   public final static native void torrent_handle_clear_peers(long jarg1, torrent_handle jarg1_);
   public final static native void torrent_handle_set_max_uploads(long jarg1, torrent_handle jarg1_, int jarg2);
   public final static native int torrent_handle_max_uploads(long jarg1, torrent_handle jarg1_);

@@ -356,6 +356,14 @@ public class torrent_handle {
     libtorrent_jni.torrent_handle_connect_peer__SWIG_2(swigCPtr, this, tcp_endpoint.getCPtr(adr), adr);
   }
 
+  public void connect_peer(sha256_hash i2p_dest, peer_source_flags_t source) {
+    libtorrent_jni.torrent_handle_connect_peer__SWIG_3(swigCPtr, this, sha256_hash.getCPtr(i2p_dest), i2p_dest, peer_source_flags_t.getCPtr(source), source);
+  }
+
+  public void connect_peer(sha256_hash i2p_dest) {
+    libtorrent_jni.torrent_handle_connect_peer__SWIG_4(swigCPtr, this, sha256_hash.getCPtr(i2p_dest), i2p_dest);
+  }
+
   public void clear_peers() {
     libtorrent_jni.torrent_handle_clear_peers(swigCPtr, this);
   }
