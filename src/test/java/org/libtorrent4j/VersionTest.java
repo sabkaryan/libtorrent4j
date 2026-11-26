@@ -29,6 +29,6 @@ public class VersionTest {
 
     @Test
     public void testVersionValue() {
-        assertEquals("2.1.2.0", LibTorrent.version());
+        assertEquals("2.1.3.0", LibTorrent.version());
     }
 }

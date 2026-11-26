@@ -27,7 +27,7 @@ public class AddTorrentParamsTest {
     @Test
     public void testVersion() {
         AddTorrentParams params = new AddTorrentParams();
-        assertEquals(20102, params.getVersion());
+        assertEquals(20103, params.getVersion());
     }
 
     @Test
