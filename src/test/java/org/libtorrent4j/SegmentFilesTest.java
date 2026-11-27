@@ -45,6 +45,7 @@ public class SegmentFilesTest {
 
     private static final int PIECE = 64 * 1024;
     private static final int PIECES = 4;
+    private static final int ENOENT = 2;
 
     @Rule
     public TemporaryFolder folder = new TemporaryFolder();
@@ -78,7 +79,8 @@ public class SegmentFilesTest {
             File dir = folder.newFolder();
             torrent_handle h = add(s, ti, dir, null);
             TorrentHandle th = new TorrentHandle(h);
-            waitFor(() -> th.status().state() != TorrentStatus.State.CHECKING_RESUME_DATA);
+            assertTrue("the resume data is checked",
+                    waitFor(() -> th.status().state() != TorrentStatus.State.CHECKING_RESUME_DATA));
             // piece 0 is left out, so the torrent keeps its picker
             for (int p = 1; p < PIECES; p++) {
                 byte[] piece = new byte[PIECE];
@@ -99,6 +101,7 @@ public class SegmentFilesTest {
             assertEquals(7, v.requestId());
             assertEquals(3, v.epoch());
             assertEquals(disk_piece_verified_alert.result_t.verified, v.result());
+            assertEquals(0, v.error().getValue());
 
             h.release_segment(0, 1, BigInteger.valueOf(11));
             SegmentReleasedAlert busy = next(SegmentReleasedAlert.class);
@@ -109,20 +112,23 @@ public class SegmentFilesTest {
             assertEquals(0, h.forget_piece(3));
             h.release_segment(0, 1, BigInteger.valueOf(12));
             SegmentReleasedAlert removed = next(SegmentReleasedAlert.class);
+            assertEquals(12, removed.token());
             assertEquals(0, removed.fileIndex());
             assertEquals(1, removed.cell());
             assertEquals(segment_released_alert.result_t.removed, removed.result());
+            assertEquals(0, removed.error().getValue());
             assertFalse(cell1.exists());
 
             // resume data that lists pieces of the deleted segment
             s.remove(th);
-            waitFor(() -> s.find(ti.infoHash()) == null);
+            assertTrue("the torrent is removed", waitFor(() -> s.find(ti.infoHash()) == null));
             bitfield have = new bitfield(PIECES, true);
             have.clear_bit(0);
             torrent_handle again = add(s, ti, dir, have);
             ResumeDataMismatchAlert m = next(ResumeDataMismatchAlert.class);
             assertEquals(0, m.fileIndex());
             assertEquals(1, m.cell());
+            assertEquals("the segment is missing", ENOENT, m.error().getValue());
             TorrentStatus st = new TorrentHandle(again).status();
             assertTrue("the torrent is paused", st.flags().and_(TorrentFlags.PAUSED).non_zero());
             assertEquals(0, st.numPieces());
