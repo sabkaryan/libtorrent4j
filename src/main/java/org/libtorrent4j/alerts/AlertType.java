@@ -114,6 +114,9 @@ public enum AlertType {
     FILE_STATUS(file_status_alert.alert_type),
     IP_BAN(ip_ban_alert.alert_type),
     PIECE_FLUSHED(piece_flushed_alert.alert_type),
+    DISK_PIECE_VERIFIED(disk_piece_verified_alert.alert_type),
+    RESUME_DATA_MISMATCH(resume_data_mismatch_alert.alert_type),
+    SEGMENT_RELEASED(segment_released_alert.alert_type),
     UNKNOWN(-1);
 
     private static final AlertType[] TABLE = buildTable();
@@ -251,6 +254,9 @@ public enum AlertType {
         arr[106] = FILE_STATUS;
         arr[107] = IP_BAN;
         arr[108] = PIECE_FLUSHED;
+        arr[109] = DISK_PIECE_VERIFIED;
+        arr[110] = RESUME_DATA_MISMATCH;
+        arr[111] = SEGMENT_RELEASED;
 
         return arr;
     }

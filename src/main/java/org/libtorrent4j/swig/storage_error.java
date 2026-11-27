@@ -93,4 +93,12 @@ public class storage_error {
     return operation_t.swigToEnum(libtorrent_jni.storage_error_operation_get(swigCPtr, this));
   }
 
+  public void setCell(long value) {
+    libtorrent_jni.storage_error_cell_set(swigCPtr, this, value);
+  }
+
+  public long getCell() {
+    return libtorrent_jni.storage_error_cell_get(swigCPtr, this);
+  }
+
 }

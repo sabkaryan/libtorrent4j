@@ -686,6 +686,24 @@ public final class Alerts {
                 return new PieceFlushedAlert(cast_to_piece_flushed_alert(a));
             }
         };
+        arr[109] = new CastLambda() {
+            @Override
+            public Alert<?> cast(alert a) {
+                return new DiskPieceVerifiedAlert(cast_to_disk_piece_verified_alert(a));
+            }
+        };
+        arr[110] = new CastLambda() {
+            @Override
+            public Alert<?> cast(alert a) {
+                return new ResumeDataMismatchAlert(cast_to_resume_data_mismatch_alert(a));
+            }
+        };
+        arr[111] = new CastLambda() {
+            @Override
+            public Alert<?> cast(alert a) {
+                return new SegmentReleasedAlert(cast_to_segment_released_alert(a));
+            }
+        };
 
         return arr;
     }

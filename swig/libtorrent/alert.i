@@ -118,6 +118,9 @@ struct alert_category_tag;
     CAST_ALERT_METHOD(file_status_alert)
     CAST_ALERT_METHOD(ip_ban_alert)
     CAST_ALERT_METHOD(piece_flushed_alert)
+    CAST_ALERT_METHOD(disk_piece_verified_alert)
+    CAST_ALERT_METHOD(resume_data_mismatch_alert)
+    CAST_ALERT_METHOD(segment_released_alert)
 
 }
 

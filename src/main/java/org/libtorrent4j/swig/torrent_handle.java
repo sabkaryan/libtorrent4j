@@ -68,6 +68,14 @@ public class torrent_handle {
     return libtorrent_jni.torrent_handle_forget_piece(swigCPtr, this, piece);
   }
 
+  public void release_segment(int file, long cell, java.math.BigInteger token) {
+    libtorrent_jni.torrent_handle_release_segment(swigCPtr, this, file, cell, token);
+  }
+
+  public void verify_disk_piece(int piece, java.math.BigInteger request_id, java.math.BigInteger epoch) {
+    libtorrent_jni.torrent_handle_verify_disk_piece(swigCPtr, this, piece, request_id, epoch);
+  }
+
   public void post_peer_info() {
     libtorrent_jni.torrent_handle_post_peer_info(swigCPtr, this);
   }

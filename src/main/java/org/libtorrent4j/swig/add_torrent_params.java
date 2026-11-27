@@ -123,6 +123,22 @@ public class add_torrent_params {
     return storage_mode_t.swigToEnum(libtorrent_jni.add_torrent_params_storage_mode_get(swigCPtr, this));
   }
 
+  public void setSegment_size(long value) {
+    libtorrent_jni.add_torrent_params_segment_size_set(swigCPtr, this, value);
+  }
+
+  public long getSegment_size() {
+    return libtorrent_jni.add_torrent_params_segment_size_get(swigCPtr, this);
+  }
+
+  public void setSegment_suffix(String value) {
+    libtorrent_jni.add_torrent_params_segment_suffix_set(swigCPtr, this, value);
+  }
+
+  public String getSegment_suffix() {
+    return libtorrent_jni.add_torrent_params_segment_suffix_get(swigCPtr, this);
+  }
+
   public void setUserdata(client_data_t value) {
     libtorrent_jni.add_torrent_params_userdata_set(swigCPtr, this, client_data_t.getCPtr(value), value);
   }
@@ -432,6 +448,14 @@ public class add_torrent_params {
 
   public void set_verified_pieces(bitfield v) {
     libtorrent_jni.add_torrent_params_set_verified_pieces(swigCPtr, this, bitfield.getCPtr(v), v);
+  }
+
+  public bitfield get_unverified_pieces() {
+    return new bitfield(libtorrent_jni.add_torrent_params_get_unverified_pieces(swigCPtr, this), true);
+  }
+
+  public void set_unverified_pieces(bitfield v) {
+    libtorrent_jni.add_torrent_params_set_unverified_pieces(swigCPtr, this, bitfield.getCPtr(v), v);
   }
 
   public static add_torrent_params load_torrent_file(String filename, error_code ec, load_torrent_limits cfg) {

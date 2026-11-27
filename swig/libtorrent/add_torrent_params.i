@@ -7,6 +7,7 @@
 %ignore libtorrent::add_torrent_params::renamed_files;
 %ignore libtorrent::add_torrent_params::have_pieces;
 %ignore libtorrent::add_torrent_params::verified_pieces;
+%ignore libtorrent::add_torrent_params::unverified_pieces;
 %ignore libtorrent::add_torrent_params::extensions;
 %ignore libtorrent::add_torrent_params::ti;
 
@@ -132,6 +133,18 @@ namespace libtorrent {
     {
         auto* t = reinterpret_cast<libtorrent::typed_bitfield<libtorrent::piece_index_t>*>(&v);
         $self->verified_pieces = *t;
+    }
+
+    bitfield get_unverified_pieces()
+    {
+        auto* v = &$self->unverified_pieces;
+        return *reinterpret_cast<libtorrent::bitfield*>(v);
+    }
+
+    void set_unverified_pieces(bitfield& v)
+    {
+        auto* t = reinterpret_cast<libtorrent::typed_bitfield<libtorrent::piece_index_t>*>(&v);
+        $self->unverified_pieces = *t;
     }
 
     static add_torrent_params load_torrent_file(std::string const& filename, error_code& ec, load_torrent_limits const& cfg)

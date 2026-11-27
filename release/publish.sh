@@ -242,6 +242,16 @@ verify_lib() { # <file> <arch regex>
         || { echo "MISSING EXPORT: $1 has no libtorrent_ext.forget_piece" >&2; exit 1; }
     grep -q '_libtorrent_1ext_native_1build$' <<< "$ex" \
         || { echo "MISSING EXPORT: $1 has no libtorrent_ext.native_build" >&2; exit 1; }
+    # the segment files and unverified pieces API: the parameters, the handle
+    # calls and the casts of their three alerts
+    local sym
+    for sym in add_1torrent_1params_1segment_1size_1set add_1torrent_1params_1segment_1suffix_1set \
+        add_1torrent_1params_1set_1unverified_1pieces torrent_1handle_1verify_1disk_1piece \
+        torrent_1handle_1release_1segment alert_1cast_1to_1disk_1piece_1verified_1alert \
+        alert_1cast_1to_1resume_1data_1mismatch_1alert alert_1cast_1to_1segment_1released_1alert; do
+        grep -q "_libtorrent_1jni_${sym}\$" <<< "$ex" \
+            || { echo "MISSING EXPORT: $1 has no libtorrent_jni.${sym}" >&2; exit 1; }
+    done
     # the build it reports (libtorrent_ext.nativeBuild()) must be this one
     LC_ALL=C grep -a -q -F "$LT_VERSION $LT_COMMIT $VERSION" "$1" \
         || { echo "WRONG BUILD: $1 does not report '$LT_VERSION $LT_COMMIT $VERSION'" >&2; exit 1; }

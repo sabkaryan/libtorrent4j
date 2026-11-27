@@ -563,6 +563,21 @@ public class alert {
     return (cPtr == 0) ? null : new piece_flushed_alert(cPtr, false);
   }
 
+  public static disk_piece_verified_alert cast_to_disk_piece_verified_alert(alert a) {
+    long cPtr = libtorrent_jni.alert_cast_to_disk_piece_verified_alert(alert.getCPtr(a), a);
+    return (cPtr == 0) ? null : new disk_piece_verified_alert(cPtr, false);
+  }
+
+  public static resume_data_mismatch_alert cast_to_resume_data_mismatch_alert(alert a) {
+    long cPtr = libtorrent_jni.alert_cast_to_resume_data_mismatch_alert(alert.getCPtr(a), a);
+    return (cPtr == 0) ? null : new resume_data_mismatch_alert(cPtr, false);
+  }
+
+  public static segment_released_alert cast_to_segment_released_alert(alert a) {
+    long cPtr = libtorrent_jni.alert_cast_to_segment_released_alert(alert.getCPtr(a), a);
+    return (cPtr == 0) ? null : new segment_released_alert(cPtr, false);
+  }
+
   public final static alert_category_t error_notification = new alert_category_t(libtorrent_jni.alert_error_notification_get(), false);
   public final static alert_category_t peer_notification = new alert_category_t(libtorrent_jni.alert_peer_notification_get(), false);
   public final static alert_category_t port_mapping_notification = new alert_category_t(libtorrent_jni.alert_port_mapping_notification_get(), false);
